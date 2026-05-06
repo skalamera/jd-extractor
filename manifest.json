@@ -1,26 +1,56 @@
 {
   "manifest_version": 3,
-  "name": "Text Clipper",
-  "version": "1.1.0",
-  "description": "Highlight text on any page, right-click to save it or get an AI-generated job application answer.",
+  "name": "jayobee",
+  "version": "1.2.0",
+  "description": "Highlight text, get AI answers, generate CVs, and auto-fill job applications.",
   "permissions": [
     "contextMenus",
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "offscreen",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Text Clipper"
+    "default_title": "jayobee",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   },
   "options_page": "options.html",
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"]
+      "all_frames": true,
+      "js": [
+        "content/portal-handlers/index.js",
+        "content/portal-handlers/ashby.js",
+        "content/portal-handlers/greenhouse.js",
+        "content/portal-handlers/lever.js",
+        "content/portal-handlers/workday.js",
+        "content/portal-handlers/linkedin.js",
+        "content/portal-handlers/icims.js",
+        "content/portal-handlers/taleo.js",
+        "content/portal-handlers/generic.js",
+        "content/form-detector.js",
+        "content/form-filler.js",
+        "content/content.js"
+      ],
+      "run_at": "document_idle"
     }
   ]
 }

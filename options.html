@@ -2,10 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Text Clipper – Settings</title>
+  <title>jayobee - Settings</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: #f5f5f5;
@@ -14,22 +13,31 @@
       padding: 48px 16px;
       color: #1a1a2e;
     }
-
+    .container {
+      width: 100%;
+      max-width: 640px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
     .card {
       background: #fff;
       border-radius: 12px;
       box-shadow: 0 2px 12px rgba(0,0,0,0.1);
       padding: 32px;
       width: 100%;
-      max-width: 480px;
     }
-
-    h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
-    p.sub { font-size: 13px; color: #666; margin-bottom: 28px; line-height: 1.5; }
-
+    h1 { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
+    h2 { font-size: 18px; font-weight: 600; margin-bottom: 16px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+    p.sub { font-size: 13px; color: #666; margin-bottom: 24px; line-height: 1.5; }
+    
+    .field { margin-bottom: 16px; }
+    .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .full-width { grid-column: 1 / -1; }
+    
     label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
-
-    input[type="password"] {
+    
+    input[type="text"], input[type="password"], input[type="email"], input[type="tel"], input[type="number"], input[type="url"], select, textarea {
       width: 100%;
       padding: 10px 12px;
       border: 1px solid #d1d5db;
@@ -37,64 +45,249 @@
       font-size: 14px;
       outline: none;
       transition: border-color 0.2s;
+      font-family: inherit;
     }
-    input[type="password"]:focus { border-color: #4f46e5; }
-
-    .row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 16px;
-    }
-
+    input:focus, select:focus, textarea:focus { border-color: #fec111; }
+    
+    .input-row { display: flex; gap: 10px; }
+    .input-row input { flex: 1; }
+    
     button {
       padding: 10px 20px;
-      background: #4f46e5;
-      color: #fff;
+      background: #fec111;
+      color: #111827;
       border: none;
       border-radius: 7px;
       font-size: 14px;
       font-weight: 600;
       cursor: pointer;
+      transition: background 0.2s;
     }
-    button:hover { background: #4338ca; }
-
-    #status {
-      font-size: 13px;
-      font-weight: 600;
-      color: #16a34a;
-      opacity: 0;
-      transition: opacity 0.3s;
+    button:hover { background: #ca8a04; color: #fff; }
+    button.secondary { background: #fff; color: #ca8a04; border: 1px solid #fec111; }
+    button.secondary:hover { background: #fefce8; color: #ca8a04; }
+    button.danger { background: #fff; color: #ef4444; border: 1px solid #fecaca; }
+    button.danger:hover { background: #fef2f2; }
+    
+    .upload-area {
+      border: 2px dashed #d1d5db;
+      border-radius: 8px;
+      padding: 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      background: #f9fafb;
     }
-    #status.show { opacity: 1; }
-
-    .hint {
-      margin-top: 20px;
-      font-size: 12px;
-      color: #888;
-      line-height: 1.6;
-    }
-    .hint a { color: #4f46e5; }
+    .upload-area:hover { border-color: #fec111; background: #fefce8; }
+    .upload-area.has-file { border-style: solid; border-color: #10b981; background: #ecfdf5; }
+    
+    .status { font-size: 13px; font-weight: 600; margin-top: 8px; min-height: 20px;}
+    .status.success { color: #16a34a; }
+    .status.error { color: #dc2626; }
+    .status.loading { color: #ca8a04; }
+    
+    .qa-pair { display: flex; gap: 10px; margin-bottom: 12px; align-items: flex-start; }
+    .qa-pair input { width: 30%; }
+    .qa-pair textarea { flex: 1; }
+    .qa-pair button { padding: 10px 14px; }
+    
+    .actions { display: flex; align-items: center; justify-content: space-between; margin-top: 32px; }
+    .hint { margin-top: 10px; font-size: 12px; color: #888; line-height: 1.6; }
+    .hint a { color: #ca8a04; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Text Clipper Settings</h1>
-    <p class="sub">Configure your Gemini API key to enable AI-powered job application answers.</p>
+  <div class="container">
+    <div class="card">
+      <div style="text-align: center;">
+        <img src="icons/settings.svg" alt="jayobee Settings" style="height: 110px; margin-bottom: 10px;">
+      </div>
+      <p class="sub">Configure your Gemini API key, upload your resume, and set profile details to enable AI-powered job application answers.</p>
 
-    <label for="api-key">Gemini API Key</label>
-    <input type="password" id="api-key" placeholder="AIza..." autocomplete="off" />
-
-    <div class="row">
-      <button id="btn-save">Save</button>
-      <span id="status">Saved ✓</span>
+      <h2>API Configuration</h2>
+      <div class="field">
+        <label for="api-key">Gemini API Key</label>
+        <div class="input-row">
+          <input type="password" id="api-key" placeholder="Enter your Gemini API key">
+          <button id="save-key-btn">Save</button>
+          <button id="test-key-btn" class="secondary">Test</button>
+        </div>
+        <div id="key-status" class="status"></div>
+        <p class="hint">
+          Get a free API key at <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a>.<br>
+          Your key is stored locally in your browser.
+        </p>
+      </div>
     </div>
 
-    <p class="hint">
-      Get a free API key at
-      <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a>.<br>
-      Your key is stored locally in your browser and never sent anywhere except Google's API.
-    </p>
+    <div class="card">
+      <h2>Resume</h2>
+      <div class="field">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label style="margin-bottom: 0;">Upload PDF</label>
+          <button id="clear-resume-btn" class="danger hidden" style="padding: 4px 8px; font-size: 11px;">Clear Resume</button>
+        </div>
+        <div class="upload-area" id="upload-area">
+          <input type="file" id="resume-input" accept=".pdf" hidden>
+          <span id="upload-text">Click to upload your master resume (PDF)</span>
+        </div>
+        <div id="resume-status" class="status"></div>
+      </div>
+      <div class="field">
+        <label for="resume-text">Parsed Master Resume Text</label>
+        <textarea id="resume-text" rows="8" placeholder="Resume text will appear here after upload..."></textarea>
+      </div>
+      <div class="field">
+        <label for="active-resume-text">Active Tailored Resume Text (Used for auto-fill)</label>
+        <textarea id="active-resume-text" rows="4" placeholder="Will be populated when you generate a tailored resume from the extension popup..." readonly style="background: #f3f4f6; color: #6b7280;"></textarea>
+        <div style="text-align: right; margin-top: 4px;">
+           <button id="clear-active-resume-btn" class="danger hidden" style="padding: 4px 8px; font-size: 11px;">Clear Tailored Resume</button>
+        </div>
+      </div>
+      <div class="field" style="margin-top: 24px;">
+        <button id="audit-resume-btn" class="secondary" style="width: 100%;">Audit Master Resume (AI)</button>
+        <div id="audit-status" class="status"></div>
+        <div id="audit-results" class="hidden" style="margin-top: 12px; padding: 16px; background: #fefce8; border: 1px solid #fef08a; border-radius: 8px; font-size: 12px; line-height: 1.5; color: #4b5563; white-space: pre-wrap;"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Personal Information</h2>
+      <div class="field-grid">
+        <div class="field"><label>First Name</label><input type="text" data-profile="firstName"></div>
+        <div class="field"><label>Last Name</label><input type="text" data-profile="lastName"></div>
+        <div class="field"><label>Email</label><input type="email" data-profile="email"></div>
+        <div class="field"><label>Phone</label><input type="tel" data-profile="phone"></div>
+      </div>
+
+      <h2 style="margin-top: 24px;">Address</h2>
+      <div class="field-grid">
+        <div class="field full-width"><label>Street Address</label><input type="text" data-profile="address.street"></div>
+        <div class="field"><label>City</label><input type="text" data-profile="address.city"></div>
+        <div class="field"><label>State</label><input type="text" data-profile="address.state"></div>
+        <div class="field"><label>ZIP Code</label><input type="text" data-profile="address.zip"></div>
+        <div class="field"><label>Country</label><input type="text" data-profile="address.country" value="United States"></div>
+      </div>
+
+      <h2 style="margin-top: 24px;">Links</h2>
+      <div class="field-grid">
+        <div class="field"><label>LinkedIn URL</label><input type="url" data-profile="linkedinUrl" placeholder="https://linkedin.com/in/..."></div>
+        <div class="field"><label>GitHub URL</label><input type="url" data-profile="githubUrl" placeholder="https://github.com/..."></div>
+        <div class="field full-width"><label>Portfolio / Website URL</label><input type="url" data-profile="portfolioUrl" placeholder="https://..."></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Application Questions</h2>
+      <div class="field-grid">
+        <div class="field">
+          <label>Will you require sponsorship?</label>
+          <select data-profile="sponsorship">
+            <option value="">-- Select --</option><option value="Yes">Yes</option><option value="No">No</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>U.S. Work Authorization Status</label>
+          <select data-profile="workAuthorizationStatus">
+            <option value="">-- Select --</option>
+            <option value="Can work for any employer">Can work for any employer</option>
+            <option value="Can work for current employer">Can work for current employer</option>
+            <option value="Seeking work authorization">Seeking work authorization</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Veteran Status</label>
+          <select data-profile="veteranStatus">
+            <option value="">-- Select --</option>
+            <option value="I am not a protected veteran">I am not a protected veteran</option>
+            <option value="I identify as one or more of the classifications of a protected veteran">I identify as a protected veteran</option>
+            <option value="I don't wish to answer">I don't wish to answer</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Disability Status</label>
+          <select data-profile="disabilityStatus">
+            <option value="">-- Select --</option>
+            <option value="Yes, I have a disability (or previously had a disability)">Yes</option>
+            <option value="No, I don't have a disability">No</option>
+            <option value="I don't wish to answer">I don't wish to answer</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Gender</label>
+          <select data-profile="gender">
+            <option value="">-- Select --</option>
+            <option value="Male">Male</option><option value="Female">Female</option>
+            <option value="Non-binary">Non-binary</option><option value="Decline to self-identify">Decline to self-identify</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Pronouns</label>
+          <select data-profile="pronouns">
+            <option value="">-- Select --</option>
+            <option value="She/Her/Hers">She/Her/Hers</option><option value="He/Him/His">He/Him/His</option>
+            <option value="They/Them/Theirs">They/Them/Theirs</option><option value="Prefer not to answer">Prefer not to answer</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Race / Ethnicity</label>
+          <select data-profile="ethnicity">
+            <option value="">-- Select --</option>
+            <option value="American Indian or Alaska Native">American Indian or Alaska Native</option>
+            <option value="Asian">Asian</option><option value="Black or African American">Black or African American</option>
+            <option value="Hispanic or Latino">Hispanic or Latino</option><option value="Native Hawaiian or Other Pacific Islander">Native Hawaiian or Other Pacific Islander</option>
+            <option value="White">White</option><option value="Two or more races">Two or more races</option>
+            <option value="Decline to self-identify">Decline to self-identify</option>
+          </select>
+        </div>
+        <div class="field"><label>Years of Experience</label><input type="number" data-profile="yearsOfExperience" min="0" max="50"></div>
+        <div class="field"><label>Desired Salary (annual)</label><input type="text" data-profile="desiredSalary" placeholder="e.g., $120,000"></div>
+        <div class="field"><label>Earliest Start Date</label><input type="text" data-profile="earliestStartDate" placeholder="e.g., Immediately"></div>
+        <div class="field">
+          <label>Hybrid Office Availability</label>
+          <select data-profile="officeAttendance">
+            <option value="">-- Select --</option><option value="Yes">Yes</option><option value="No">No</option><option value="I'd like to discuss this further">I'd like to discuss this further</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Willing to Relocate</label>
+          <select data-profile="relocation">
+            <option value="">-- Select --</option><option value="Yes">Yes</option><option value="No">No</option><option value="I am local to the location hub.">I am local to the location hub.</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Custom Q&A</h2>
+      <p class="sub" style="margin-bottom: 12px;">Add custom answers for common application questions. These take priority over AI-generated answers.</p>
+      <div id="qa-list"></div>
+      <button id="add-qa-btn" class="secondary">+ Add Q&A Pair</button>
+    </div>
+
+    <div class="card">
+      <h2>Testing</h2>
+      <p class="sub" style="margin-bottom: 12px;">Use this only for AI screening defense tests.</p>
+      <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #1f2937; cursor: pointer;">
+        <input type="checkbox" id="enable-pdf-canary" style="margin-top: 2px;">
+        <span>Add a 4pt white canary line to generated Resume and Cover Letter PDF print tabs.</span>
+      </label>
+    </div>
+
+    <div class="card">
+      <h2>Data Management</h2>
+      <p class="sub" style="margin-bottom: 12px;">Export or clear your saved job descriptions and tracking data.</p>
+      <div class="field-grid">
+        <div class="field"><button id="btn-export-clips" class="secondary" style="width: 100%;">Export JD Clips (.txt)</button></div>
+        <div class="field"><button id="btn-clear-clips" class="danger" style="width: 100%;">Clear All JD Clips</button></div>
+      </div>
+    </div>
+
+    <div class="card actions" style="margin-top: 0; margin-bottom: 48px;">
+      <button id="save-btn" style="font-size: 16px; padding: 12px 32px;">Save All Settings</button>
+      <div id="save-status" class="status"></div>
+    </div>
   </div>
 
   <script src="options.js"></script>

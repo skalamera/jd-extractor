@@ -1,6 +1,6 @@
 # Stephen Skalamera
 
-+1 (443) 624-1226 | skalamera@gmail.com | New York, NY, USA | linkedin.com/in/skalamera
++1 (443) 624-1226 | skalamera@gmail.com | New York, NY, USA | linkedin.com/in/skalamera | skalamera.me
 
 ---
 
