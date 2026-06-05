@@ -50,6 +50,8 @@
     btn.addEventListener('click', () => startAutoFill());
   }
 
+  let skipRequested = false;
+
   // Create status overlay
   function createOverlay() {
     if (window !== window.top) return; // Only show UI in the top frame
@@ -99,9 +101,21 @@
             border-radius: 2px;
           "></div>
         </div>
+        <button id="job-autofill-skip-btn" style="margin-top: 12px; width: 100%; padding: 8px; background: #f97316; border: 1px solid #ea580c; border-radius: 4px; cursor: pointer; color: white; font-weight: 600; font-size: 13px; transition: background 0.2s; line-height: normal !important; display: none !important; box-sizing: border-box !important;">Skip Current Field</button>
       </div>
     `;
     document.body.appendChild(overlay);
+
+    const skipBtn = document.getElementById('job-autofill-skip-btn');
+    if (skipBtn) {
+      skipBtn.addEventListener('mouseenter', () => skipBtn.style.background = '#ea580c');
+      skipBtn.addEventListener('mouseleave', () => skipBtn.style.background = '#f97316');
+      skipBtn.addEventListener('click', () => {
+        skipRequested = true;
+        skipBtn.textContent = 'Skipping...';
+        setTimeout(() => { skipBtn.textContent = 'Skip Current Field'; }, 1000);
+      });
+    }
   }
 
   function updateStatus(text, progress) {
@@ -121,6 +135,9 @@
 
   function showResult(filled, failedLabels, total) {
     if (window === window.top) {
+      const skipBtn = document.getElementById('job-autofill-skip-btn');
+      if (skipBtn) skipBtn.style.display = 'none';
+
       const statusEl = document.getElementById('job-autofill-status');
       const failedCount = failedLabels.length;
       
@@ -186,6 +203,9 @@
 
   function showError(message) {
     if (window === window.top) {
+      const skipBtn = document.getElementById('job-autofill-skip-btn');
+      if (skipBtn) skipBtn.style.display = 'none';
+
       const statusEl = document.getElementById('job-autofill-status');
       if (statusEl) {
         statusEl.innerHTML = `
@@ -413,8 +433,12 @@
   async function startAutoFill() {
     if (isRunning) return;
     isRunning = true;
+    skipRequested = false;
 
     createOverlay();
+    const skipBtn = document.getElementById('job-autofill-skip-btn');
+    if (skipBtn) skipBtn.style.display = 'block';
+
     updateStatus('Detecting application form...', 5);
 
     try {
@@ -422,6 +446,43 @@
       const profileData = await chrome.runtime.sendMessage({ type: 'GET_PROFILE' });
       if (!profileData.hasApiKey) throw new Error('Please set your Gemini API key in the extension popup.');
       if (!profileData.hasResume) throw new Error('Please upload your resume in the extension popup.');
+
+      const querySelectorAllDeep = (selector, root = document) => {
+        const elements = Array.from(root.querySelectorAll(selector));
+        const children = root.querySelectorAll('*');
+        for (const child of children) {
+          if (child.shadowRoot) {
+            elements.push(...querySelectorAllDeep(selector, child.shadowRoot));
+          }
+        }
+        return elements;
+      };
+
+      // Click all "+ Add" buttons (Experience, Education rows) to expand dynamic form fields (crossing shadow boundaries)
+      const allButtons = querySelectorAllDeep('button, [role="button"], a.btn, .btn, sf-button, [class*="button"], [class*="btn"], .add-button, span, div, a');
+      console.log(`[JobAutoFill Debug] querySelectorAllDeep found ${allButtons.length} candidate elements.`);
+      const addButtons = allButtons.filter(el => {
+        const text = el.textContent.replace(/\s+/g, ' ').trim().toLowerCase();
+        if (text.length > 50) return false;
+        const isMatch = text === '+ add' || text === 'add' || text === '+add' || text === 'add more' || text === 'add another' ||
+          (text.includes('add') && (text.includes('experience') || text.includes('education') || text.includes('job') || text.includes('work') || text.includes('school') || text.includes('history') || text.includes('degree') || text.includes('employer')));
+        if (isMatch) {
+          console.log(`[JobAutoFill Debug] Matched button: tag=${el.tagName}, class=${el.className}, text="${text}"`);
+        }
+        return isMatch;
+      });
+
+      if (addButtons.length > 0) {
+        console.log(`[JobAutoFill] Found ${addButtons.length} "+ Add" button(s). Clicking to expand form sections...`);
+        for (const btn of addButtons) {
+          try {
+            btn.click();
+          } catch (e) {
+            console.warn('[JobAutoFill] Click failed on "+ Add" button:', e);
+          }
+        }
+        await FormFiller.delay(350); // wait for animations to complete
+      }
 
       updateStatus('Scanning form fields...', 15);
 
@@ -554,10 +615,24 @@
         const fallbackPurposes = new Set([
           'pronouns', 'workAuthorizationStatus', 'relocation', 'officeAttendance', 'sponsorship', 'gender', 'ethnicity', 'disabilityStatus', 'veteranStatus'
         ]);
+        const optionalPurposes = new Set([
+          'facebookUrl', 'twitterUrl', 'githubUrl', 'portfolioUrl'
+        ]);
         const fallbackAiFields = [];
 
         for (const field of directFields) {
           const resolved = resolveFieldElement(field);
+          
+          if (skipRequested) {
+            skipRequested = false;
+            console.log(`[JobAutoFill] Skipped direct field: ${resolved.label}`);
+            allFailedFieldLabels.push(resolved.label + " (skipped)");
+            const highlightTarget = FormFiller.getComboboxInteractTarget(resolved.element) || resolved.element;
+            highlightTarget.style.outline = '2px solid #f97316';
+            highlightTarget.style.outlineOffset = '2px';
+            continue;
+          }
+
           const value = getProfileValue(profileData.profile, resolved.purpose);
           if (value) {
             const success = await fillDetectedField(resolved, value);
@@ -576,7 +651,7 @@
               // Clear the incorrect value if possible
               if (resolved.element.tagName === 'SELECT') {
                 resolved.element.selectedIndex = -1;
-                resolved.element.dispatchEvent(new Event('change', { bubbles: true }));
+                resolved.element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
               }
               fallbackAiFields.push(resolved);
             }
@@ -584,6 +659,8 @@
           } else {
             if (fallbackPurposes.has(resolved.purpose)) {
               fallbackAiFields.push(resolved);
+            } else if (optionalPurposes.has(resolved.purpose)) {
+              // Optional profile field: skip outlining in red if empty
             } else {
               const highlightTarget = FormFiller.getComboboxInteractTarget(resolved.element) || resolved.element;
               highlightTarget.style.outline = '2px solid #ea4335';
@@ -619,6 +696,17 @@
 
           for (const field of aiQueue) {
             const resolved = resolveFieldElement(field);
+
+            if (skipRequested) {
+              skipRequested = false;
+              console.log(`[JobAutoFill] Skipped AI field: ${resolved.label}`);
+              allFailedFieldLabels.push(resolved.label + " (skipped)");
+              const highlightTarget = FormFiller.getComboboxInteractTarget(resolved.element) || resolved.element;
+              highlightTarget.style.outline = '2px solid #f97316';
+              highlightTarget.style.outlineOffset = '2px';
+              continue;
+            }
+
             const value = aiAnswers[resolved.id];
             const highlightTarget = FormFiller.getComboboxInteractTarget(resolved.element) || resolved.element;
             
@@ -686,7 +774,41 @@
 
         // If this was pass 1, wait half a second to let any cascading fields (like Race) appear
         if (pass === 1) {
-           await FormFiller.delay(600);
+          const saveButtons = querySelectorAllDeep('button, [role="button"], a.btn, .btn, sf-button')
+            .filter(el => {
+              const text = el.textContent.trim().toLowerCase();
+              return text === 'save' || text === 'add and save';
+            });
+          
+          if (saveButtons.length > 0) {
+            console.log(`[JobAutoFill] Found ${saveButtons.length} "Save" button(s) at end of Pass 1. Clicking to save sections...`);
+            for (const btn of saveButtons) {
+              try {
+                btn.click();
+              } catch (e) {}
+            }
+            await FormFiller.delay(1000); // wait for save API requests and animations to settle!
+            
+            // Now click "+ Add" again to expand the next card for Pass 2!
+            const addButtonsPass2 = querySelectorAllDeep('button, [role="button"], a.btn, .btn, sf-button, [class*="button"], [class*="btn"], .add-button')
+              .filter(el => {
+                const text = el.textContent.replace(/\s+/g, ' ').trim().toLowerCase();
+                if (text === '+ add' || text === 'add' || text === '+add' || text === 'add more' || text === 'add another') return true;
+                if (text.includes('add') && (text.includes('experience') || text.includes('education') || text.includes('job') || text.includes('work') || text.includes('school') || text.includes('history') || text.includes('degree') || text.includes('employer'))) return true;
+                return false;
+              });
+              
+            if (addButtonsPass2.length > 0) {
+              console.log(`[JobAutoFill] Clicking "+ Add" button(s) again to expand subsequent cards for Pass 2...`);
+              for (const btn of addButtonsPass2) {
+                try {
+                  btn.click();
+                } catch (e) {}
+              }
+              await FormFiller.delay(500); // wait for card to open
+            }
+          }
+          await FormFiller.delay(600);
         }
       }
 
@@ -800,7 +922,7 @@
         box-sizing: border-box;
       `;
       
-      btn.innerHTML = `jayobee`;
+      btn.innerHTML = `Clyde`;
         
       btn.addEventListener('mouseenter', () => btn.style.opacity = '0.88');
       btn.addEventListener('mouseleave', () => btn.style.opacity = '1');
@@ -880,14 +1002,14 @@
         });
 
         if (isExtracted) {
-          btn.innerHTML = `jayobee \u2713`;
+          btn.innerHTML = `Clyde \u2713`;
           btn.style.opacity = '0.5';
           btn.style.cursor = 'default';
           btn.disabled = true; // prevent re-clicking while extracted
           btn.onmouseenter = null;
           btn.onmouseleave = null;
         } else {
-          btn.innerHTML = `jayobee`;
+          btn.innerHTML = `Clyde`;
           btn.style.opacity = '1';
           btn.style.cursor = 'pointer';
           btn.disabled = false;
@@ -898,7 +1020,7 @@
     } catch (e) {
       // Ignore extension context invalidated errors to prevent console spam
       if (e.message && e.message.includes('Extension context invalidated')) return;
-      console.warn('jayobee: Error accessing storage:', e);
+      console.warn('Clyde: Error accessing storage:', e);
     }
   }
 

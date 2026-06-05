@@ -80,10 +80,38 @@ function extractFieldInfo(element) {
   return field;
 }
 
+function closestDeep(el, selector) {
+  let current = el;
+  while (current) {
+    if (current.nodeType === Node.ELEMENT_NODE) {
+      if (current.matches?.(selector)) return current;
+      const tag = current.tagName?.toLowerCase() || '';
+      if (tag.includes('-') && (tag.includes('wrapper') || tag.includes('input') || tag.includes('field') || tag.includes('textarea') || tag.includes('group') || tag.includes('control'))) {
+        return current;
+      }
+    }
+    current = current.parentNode || current.host;
+  }
+  return null;
+}
+
+function querySelectorDeep(selector, root = document) {
+  const el = root.querySelector(selector);
+  if (el) return el;
+  const children = root.querySelectorAll('*');
+  for (const child of children) {
+    if (child.shadowRoot) {
+      const found = querySelectorDeep(selector, child.shadowRoot);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 function getFieldLabel(element) {
   // 1. Explicit label via for attribute
   if (element.id) {
-    const label = document.querySelector(`label[for="${CSS.escape(element.id)}"]`);
+    const label = querySelectorDeep(`label[for="${CSS.escape(element.id)}"]`);
     if (label) return label.textContent.trim();
   }
 
@@ -100,7 +128,7 @@ function getFieldLabel(element) {
   }
 
   // 4. Parent label
-  const parentLabel = element.closest('label');
+  const parentLabel = closestDeep(element, 'label');
   if (parentLabel) {
     const clone = parentLabel.cloneNode(true);
     clone.querySelectorAll('input, select, textarea').forEach(el => el.remove());
@@ -110,33 +138,63 @@ function getFieldLabel(element) {
 
   // 5. Preceding label sibling
   const prev = element.previousElementSibling;
-  if (prev && prev.tagName === 'LABEL') {
+  if (prev && (prev.tagName === 'LABEL' || /label|title/i.test(prev.className || ''))) {
     const pt = prev.textContent.trim();
     if (pt) return pt;
   }
 
-  // 5b. Lever: question copy in .application-label
-  const leverCard = element.closest('.application-question, .application-field');
+  // 5c. Sibling label of parent container (cross-shadow helper)
+  const parent = element.parentElement;
+  if (parent) {
+    const parentPrev = parent.previousElementSibling;
+    if (parentPrev && (parentPrev.tagName === 'LABEL' || /label|title/i.test(parentPrev.className || ''))) {
+      const pt = parentPrev.textContent.trim();
+      if (pt) return pt;
+    }
+  }
+
+  // 5d. Lever: question copy in .application-label
+  const leverCard = closestDeep(element, '.application-question, .application-field');
   if (leverCard) {
-    const appLab = leverCard.querySelector('.application-label');
+    const appLab = querySelectorDeep('.application-label', leverCard);
     if (appLab) {
       const t = appLab.textContent.replace(/\s+/g, ' ').trim();
       if (t) return t;
     }
   }
 
-  // 6. Nearest label in parent container
-  const container = element.closest('.field, .form-group, .form-field, .question, .application-question, [class*="field"], [class*="group"]');
-  if (container) {
-    const label = container.querySelector('label, .label, legend, [class*="label"]');
-    if (label) {
-      const t = label.textContent.trim();
-      if (t) return t;
+  // 6. Climb up and search ancestors for any labels (crossing shadow boundaries)
+  let current = element;
+  for (let i = 0; i < 6 && current; i++) {
+    // Safety check: if the ancestor contains multiple fields, only query down if we are close (i <= 2)
+    const textInputsCount = current.querySelectorAll('input:not([type="hidden"]), select, textarea').length;
+    if (i <= 2 || textInputsCount <= 1) {
+      const label = querySelectorDeep('label, .label, legend, [class*="label"], [class*="prompt"], [class*="title"], [class*="header"]', current);
+      if (label) {
+        const t = label.textContent.trim();
+        if (t) return t;
+      }
     }
+    current = current.parentNode || current.host;
   }
 
   // 7. Placeholder as last resort
-  return element.placeholder || '';
+  if (element.placeholder) return element.placeholder;
+
+  // 8. Fallback to name or id attribute
+  if (element.name || element.id) {
+    const raw = element.name || element.id;
+    if (raw && typeof raw === 'string' && !raw.startsWith('field_')) {
+      const parsed = raw
+        .replace(/([A-Z])/g, ' $1') // split camelCase
+        .replace(/[_-]+/g, ' ')     // split snake_case/kebab-case
+        .trim();
+      const capitalized = parsed.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      if (capitalized && capitalized.length > 1 && capitalized.length < 50) return capitalized;
+    }
+  }
+
+  return '';
 }
 
 function classifyFieldType(type, element) {
@@ -174,7 +232,7 @@ function classifyFieldPurpose(label, options = [], fieldType = null) {
       return 'coverLetter';
     }
     if (/\bresume\b|\bcv\b|\bcurriculum vitae\b|\bcurriculum\b/.test(l)) return 'resumeFile';
-    if (/\battach\b|\bupload\b|\bchoose\s+file\b|\bbrowse\b/.test(l)) return 'resumeFile';
+    if (/\battach\b|\bupload\b|\bchoose\s+(a\s+)?file\b|\bbrowse\b|\bdrop\s+it\s+here\b/.test(l)) return 'resumeFile';
     if (/^(attach|upload|browse|choose file|file)$/.test(bareLabel)) return 'resumeFile';
   }
 
@@ -212,6 +270,8 @@ function classifyFieldPurpose(label, options = [], fieldType = null) {
   if (/\blinkedin\b/.test(l)) return 'linkedinUrl';
   if (/\bgithub\b/.test(l)) return 'githubUrl';
   if (/\b(portfolio|website|personal\s*site)\b/.test(l)) return 'portfolioUrl';
+  if (/\bfacebook\b/.test(l)) return 'facebookUrl';
+  if (/\b(twitter|x\.com|fka\s*twitter)\b/.test(l)) return 'twitterUrl';
 
   // Standard questions
   if (/\bpronouns?\b/.test(l) || /\b(she\/her|he\/him|they\/them|prefer not to answer)\b/.test(optionsText)) return 'pronouns';

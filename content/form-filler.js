@@ -3,6 +3,30 @@
 const FormFiller = {
   FILL_DELAY: 150, // ms between fills to avoid race conditions
 
+  querySelectorDeep(selector, root = document) {
+    const el = root.querySelector(selector);
+    if (el) return el;
+    const children = root.querySelectorAll('*');
+    for (const child of children) {
+      if (child.shadowRoot) {
+        const found = this.querySelectorDeep(selector, child.shadowRoot);
+        if (found) return found;
+      }
+    }
+    return null;
+  },
+
+  querySelectorAllDeep(selector, root = document) {
+    const elements = Array.from(root.querySelectorAll(selector));
+    const children = root.querySelectorAll('*');
+    for (const child of children) {
+      if (child.shadowRoot) {
+        elements.push(...this.querySelectorAllDeep(selector, child.shadowRoot));
+      }
+    }
+    return elements;
+  },
+
   normalizeChoiceText(value) {
     return String(value || '')
       .toLowerCase()
@@ -74,20 +98,24 @@ const FormFiller = {
       return outerCombo;
     }
 
-    const q = fieldInput.closest(
-      '[data-question-id], [data-question], .application-question, [class*="application-question"], [class*="ApplicationQuestion"], [class*="question-"], fieldset, .field'
-    );
+    const containerSelector = '[data-question-id], [data-question], .application-question, [class*="application-question"], [class*="ApplicationQuestion"], [class*="question-"], fieldset, .field, .form-group, .form-field, .form-element, [class*="form-group"], [class*="form-field"], [class*="form-element"]';
+    const q = fieldInput.closest(containerSelector);
     if (q) {
-      const cand = q.querySelectorAll(
-        '[role="combobox"], input[class*="remix-css"], input[id^="question_"], input[name^="question_"]'
+      const cand = this.querySelectorAllDeep(
+        '[role="combobox"], input[class*="remix-css"], input[id^="question_"], input[name^="question_"]',
+        q
       );
       for (const el of cand) {
         if (el === fieldInput) continue;
+        if (el.getRootNode() !== fieldInput.getRootNode()) continue;
         if (this.isTinyOrAriaHidden(el)) continue;
+        
+        // Ensure the candidate belongs strictly to the closest container of this field
+        if (el.closest(containerSelector) !== q) continue;
         return el;
       }
-      const btn = q.querySelector('button[type="button"]:not([disabled])');
-      if (btn && !this.isTinyOrAriaHidden(btn)) return btn;
+      const btn = this.querySelectorDeep('button[type="button"]:not([disabled])', q);
+      if (btn && !this.isTinyOrAriaHidden(btn) && btn.closest(containerSelector) === q) return btn;
     }
 
     return outerCombo || fieldInput;
@@ -102,16 +130,81 @@ const FormFiller = {
       fieldInput?.closest?.('[role="combobox"]'),
       fieldInput
     ].filter(Boolean);
+
+    const isValidListbox = (el) => {
+      if (!el) return false;
+      const cn = String(el.className || '').toLowerCase();
+      const id = String(el.id || '').toLowerCase();
+      const role = String(el.getAttribute('role') || '').toLowerCase();
+      // Exclude validation summaries, errors, alerts, warnings, and messages
+      const isValidation = /\b(validation|error|alert|warning|tooltip|feedback|message)\b/i.test(cn + ' ' + id);
+      if (isValidation && role !== 'listbox') {
+        return false;
+      }
+      return true;
+    };
+
+    const isPositionedNear = (inputEl, candidateEl) => {
+      const r1 = inputEl.getBoundingClientRect();
+      const r2 = candidateEl.getBoundingClientRect();
+      if (r2.width === 0 || r2.height === 0) return false;
+      
+      const vertDist = Math.min(
+        Math.abs(r2.top - r1.bottom),
+        Math.abs(r2.bottom - r1.top)
+      );
+      const horizDist = Math.max(0, r1.left - r2.right, r2.left - r1.right);
+      
+      // Candidate should be close to the input vertically and horizontally
+      return vertDist <= 150 && horizDist <= 150;
+    };
+
     const seen = new Set();
     for (const node of chain) {
       if (seen.has(node)) continue;
       seen.add(node);
       const cid = node.getAttribute?.('aria-controls') || node.getAttribute?.('aria-owns') || node.getAttribute?.('list');
       if (cid) {
-        const lb = document.getElementById(cid);
-        if (lb) return lb;
+        try {
+          const lb = this.querySelectorDeep(`#${CSS.escape(cid)}`);
+          if (lb && isValidListbox(lb)) return lb;
+        } catch {}
       }
     }
+
+    // Fallback: search the parent shadow root (not the whole document) for any listbox-like element
+    const rootNode = fieldInput.getRootNode();
+    if (rootNode && rootNode !== document && typeof rootNode.querySelector === 'function') {
+      const fb = rootNode.querySelector('[role="listbox"], ul, .results, [class*="results"], [class*="listbox"], [class*="dropdown"], [class*="list"]');
+      if (fb && isValidListbox(fb)) return fb;
+    }
+    const container = fieldInput.closest?.('.field, [class*="group"], [class*="input"], [class*="wrapper"]');
+    if (container) {
+      const fb = this.querySelectorDeep('[role="listbox"], ul, .results, [class*="results"], [class*="listbox"], [class*="dropdown"], [class*="list"]', container);
+      if (fb && isValidListbox(fb)) return fb;
+    }
+
+    // Fallback 2: Search globally (crossing shadow roots) for any visible listbox-like element
+    try {
+      const globalElements = this.querySelectorAllDeep(
+        '[role="listbox"], ul, .results, sf-typeahead-items, sf-autocomplete-items, ' +
+        '[class*="results"], [class*="listbox"], [class*="dropdown"], [class*="menu"], ' +
+        '[class*="autocomplete-panel"], [class*="suggestions-panel"], [class*="dropdown-panel"], ' +
+        '[class*="overlay"], [class*="typeahead"], [class*="autocomplete"], [class*="suggestions"], ' +
+        '[class*="popover"], [class*="selection"], [class*="options"], ' +
+        '[class*="spl-listbox"], [class*="spl-dropdown"], [class*="spl-menu"], [class*="spl-select"], ' +
+        '[class*="spl-typeahead"], [class*="spl-autocomplete"], [class*="spl-option"], [class*="spl-popup"], [class*="spl-overlay"]'
+      );
+      for (const el of globalElements) {
+        if (!isValidListbox(el)) continue;
+        if (!isPositionedNear(interact, el)) continue;
+        const style = window.getComputedStyle(el);
+        if (style.display !== 'none' && style.visibility !== 'hidden' && el.getBoundingClientRect().height > 10) {
+          return el;
+        }
+      }
+    } catch {}
+
     return null;
   },
 
@@ -325,87 +418,213 @@ const FormFiller = {
       element.getAttribute('aria-label'),
       element.id,
       element.name,
-      element.getAttribute('data-qa')
+      element.getAttribute('data-qa'),
+      (() => {
+        if (element.id) {
+          const l = document.querySelector(`label[for="${CSS.escape(element.id)}"]`);
+          if (l) return l.textContent;
+        }
+        return '';
+      })()
     ].filter(Boolean).join(' ');
-    return /\blocation\b/i.test(blob);
+    return /\b(location|city|town|state|country|address|zip|postal)\b/i.test(blob);
   },
 
-  async typeIncrementalForAutocomplete(element, valueStr) {
+  async typeValueIncrementally(element, valueStr) {
     const interact = this.getComboboxInteractTarget(element);
-    const proto = element.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-    interact.focus();
-    await this.delay(70);
-    if (nativeInputValueSetter) nativeInputValueSetter.call(element, '');
-    else element.value = '';
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-
-    const s = String(valueStr);
-    for (let i = 0; i < s.length; i += 2) {
-      const part = s.slice(i, i + 2);
-      const next = (element.value || '') + part;
-      if (nativeInputValueSetter) nativeInputValueSetter.call(element, next);
-      else element.value = next;
-      try {
-        element.dispatchEvent(new InputEvent('input', {
-          bubbles: true,
-          cancelable: true,
-          inputType: 'insertText',
-          data: part
-        }));
-      } catch {
-        element.dispatchEvent(new Event('input', { bubbles: true }));
+    
+    // 1. Focus interact element
+    let isFocused = false;
+    try {
+      interact.focus();
+      await this.delay(50);
+      isFocused = (document.activeElement === interact);
+      if (!isFocused) {
+        interact.focus();
+        await this.delay(100);
+        isFocused = (document.activeElement === interact);
       }
-      await this.delay(35);
-    }
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    // Try to trigger React 16/17+ internal change handlers directly if native setter isn't enough
-    const reactPropsKey = Object.keys(element).find(key => key.startsWith('__reactProps$') || key.startsWith('__reactEventHandlers$'));
-    if (reactPropsKey && element[reactPropsKey] && element[reactPropsKey].onChange) {
+    } catch (e) {}
+
+    // 2. Clear existing value
+    let cleared = false;
+    if (isFocused) {
       try {
-        element[reactPropsKey].onChange({ target: element, currentTarget: element });
+        interact.select();
+        cleared = document.execCommand('delete');
       } catch (e) {}
     }
-    await this.delay(450);
+    if (!cleared) {
+      const isTextArea = interact instanceof HTMLTextAreaElement;
+      const isInput = interact instanceof HTMLInputElement;
+      const proto = isTextArea ? HTMLTextAreaElement.prototype : (isInput ? HTMLInputElement.prototype : Object.getPrototypeOf(interact));
+      const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+      if (nativeSetter) {
+        try { nativeSetter.call(interact, ''); } catch { interact.value = ''; }
+      } else {
+        interact.value = '';
+      }
+      interact.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
+    }
+    await this.delay(50);
+
+    // 3. Type character-by-character
+    for (const char of valueStr) {
+      // Keydown
+      interact.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true, cancelable: true }));
+
+      // Insert character
+      let typedChar = false;
+      if (isFocused) {
+        try {
+          typedChar = document.execCommand('insertText', false, char);
+        } catch (e) {}
+      }
+
+      if (!typedChar) {
+        const next = (interact.value || '') + char;
+        const isTextArea = interact instanceof HTMLTextAreaElement;
+        const isInput = interact instanceof HTMLInputElement;
+        const proto = isTextArea ? HTMLTextAreaElement.prototype : (isInput ? HTMLInputElement.prototype : Object.getPrototypeOf(interact));
+        const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+        if (nativeSetter) {
+          try { nativeSetter.call(interact, next); } catch { interact.value = next; }
+        } else {
+          interact.value = next;
+        }
+        interact.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
+      }
+
+      // Keyup
+      interact.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true, cancelable: true }));
+
+      // Natural delay between characters (15 - 35ms)
+      await this.delay(15 + Math.random() * 20);
+    }
+
+    // Dispatch final change event
+    interact.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
+
+    // Sync with hidden mirror element if different
+    if (element !== interact) {
+      const isTextArea = element instanceof HTMLTextAreaElement;
+      const isInput = element instanceof HTMLInputElement;
+      const proto = isTextArea ? HTMLTextAreaElement.prototype : (isInput ? HTMLInputElement.prototype : Object.getPrototypeOf(element));
+      const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+      if (nativeSetter) {
+        try { nativeSetter.call(element, interact.value); } catch { element.value = interact.value; }
+      } else {
+        element.value = interact.value;
+      }
+      element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
+    }
+
+    // Trigger React onChange hook if present
+    const triggerReactChange = (el) => {
+      const reactPropsKey = Object.keys(el).find(key => key.startsWith('__reactProps$') || key.startsWith('__reactEventHandlers$'));
+      if (reactPropsKey && el[reactPropsKey] && el[reactPropsKey].onChange) {
+        try {
+          el[reactPropsKey].onChange({ target: el, currentTarget: el });
+        } catch (e) {}
+      }
+    };
+    triggerReactChange(interact);
+    if (element !== interact) {
+      triggerReactChange(element);
+    }
   },
 
   async fillTextInput(element, value) {
     const interact = this.getComboboxInteractTarget(element);
-    interact.focus();
-
-    // Clear existing value
-    element.value = '';
-
-    // Use the native setter to bypass React/Vue controlled components
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-      element.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
-      'value'
-    )?.set;
-
-    if (nativeInputValueSetter) {
-      nativeInputValueSetter.call(element, value);
-    } else {
-      element.value = value;
+    
+    // Programmatic flatpickr date setter support
+    const fp = element._flatpickr || interact._flatpickr;
+    if (fp && typeof fp.setDate === 'function') {
+      try {
+        fp.setDate(value, true);
+        element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
+        return true;
+      } catch (e) {
+        console.warn('[JobAutoFill] flatpickr.setDate failed:', e);
+      }
     }
+    
+    // Special handling for "Present" end dates:
+    // If the value is "Present" / "Current" and the label looks like an end-date,
+    // find and check the "I currently work here" / "currently study here" checkbox instead.
+    const isEndDateLabel = (lab) => {
+      const l = String(lab || '').toLowerCase();
+      return l === 'to' || l.includes('end date') || l.includes('to date') || l.includes('graduation');
+    };
+    
+    const elementLabel = element.getAttribute('aria-label') || element.placeholder || element.id || '';
+    if (isEndDateLabel(elementLabel) && /^(present|current|now)$/i.test(String(value).trim())) {
+      console.log(`[JobAutoFill] Special handling: checking 'currently work/study here' checkbox for value "${value}"`);
+      
+      const querySelectorAllDeep = (selector, root = document) => {
+        const elements = Array.from(root.querySelectorAll(selector));
+        const children = root.querySelectorAll('*');
+        for (const child of children) {
+          if (child.shadowRoot) {
+            elements.push(...querySelectorAllDeep(selector, child.shadowRoot));
+          }
+        }
+        return elements;
+      };
 
-    // Dispatch events in the correct order for framework compatibility
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    try {
-      element.dispatchEvent(new InputEvent('input', {
-        bubbles: true,
-        cancelable: true,
-        inputType: 'insertText',
-        data: String(value)
-      }));
-    } catch {
-      /* InputEvent unsupported */
-    }
+      const getCheckboxLabelText = (cb) => {
+        let t = this.getChoiceLabel(cb);
+        if (t) return t;
+        
+        const host = cb.getRootNode()?.host;
+        if (host) {
+          t = host.getAttribute('label') || host.textContent;
+          if (t?.trim()) return t.trim();
+          
+          const p = host.parentElement;
+          if (p && p.textContent?.trim()) return p.textContent.trim();
+        }
+        
+        const parentDiv = cb.closest?.('div, [class*="checkbox"], [class*="check"], label');
+        if (parentDiv && parentDiv.textContent?.trim()) {
+          return parentDiv.textContent.trim();
+        }
+        return '';
+      };
 
-    if (interact !== element && interact.tagName === 'INPUT' && nativeInputValueSetter) {
-      nativeInputValueSetter.call(interact, value);
-      interact.dispatchEvent(new Event('input', { bubbles: true }));
-      interact.dispatchEvent(new Event('change', { bubbles: true }));
+      // Traverse up to find the group container, then find a checkbox
+      let container = element.parentElement;
+      let checkboxFound = false;
+      for (let i = 0; i < 6 && container; i++) {
+        const checkboxes = querySelectorAllDeep('input[type="checkbox"], sf-checkbox, [role="checkbox"], [class*="checkbox"], .checkbox, .check-box', container);
+        for (const cb of checkboxes) {
+          const cbLabel = getCheckboxLabelText(cb);
+          console.log(`[JobAutoFill Debug] Checkbox candidate: label="${cbLabel}", tag=${cb.tagName}, class=${cb.className}`);
+          if (/\b(currently|current|present|work\s+here|study\s+here)\b/i.test(cbLabel)) {
+            console.log(`[JobAutoFill] Found matching currently work/study checkbox: "${cbLabel}". Clicking...`);
+            
+            cb.click();
+            cb.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
+            cb.dispatchEvent(new Event('click', { bubbles: true, cancelable: true, composed: true }));
+            
+            const host = cb.getRootNode()?.host;
+            if (host && host !== cb) {
+              try {
+                host.click();
+                host.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
+                host.dispatchEvent(new Event('click', { bubbles: true, cancelable: true, composed: true }));
+              } catch (e) {}
+            }
+            checkboxFound = true;
+            break;
+          }
+        }
+        if (checkboxFound) break;
+        container = container.parentElement;
+      }
+      return true; // ALWAYS return true for "Present" on end-date fields to prevent angular library crash!
     }
 
     const isTypeahead =
@@ -414,74 +633,114 @@ const FormFiller = {
       element.getAttribute('aria-haspopup') != null ||
       element.getAttribute('list') != null ||
       element.closest('[role="combobox"]') != null ||
-      this.isGreenhouseRemixComboboxInput(element);
+      this.isGreenhouseRemixComboboxInput(element) ||
+      (() => {
+        // SmartRecruiters specific typeahead labels mapping
+        const isSR = window.location.href.includes('smartrecruiters.com');
+        const elementLabel = element.getAttribute('aria-label') || element.placeholder || element.id || '';
+        const resolvedLabel = (typeof getFieldLabel === 'function') ? getFieldLabel(element) : '';
+        const textToTest = `${elementLabel} ${resolvedLabel} ${element.name || ''}`.toLowerCase();
+        if (isSR && /\b(title|company|office\s+location|institution|school\s+location|degree|city)\b/i.test(textToTest)) {
+          return true;
+        }
+
+        const host = element.getRootNode()?.host;
+        const chain = [element, host].filter(Boolean);
+        for (const el of chain) {
+          if (/typeahead|autocomplete|combobox|search/i.test(el.className || '') ||
+              /typeahead|autocomplete|combobox|search/i.test(el.tagName || '')) {
+            return true;
+          }
+        }
+        const container = element.closest('.field, [class*="input"], [class*="wrapper"]');
+        if (container) {
+          if (container.querySelector('svg, .icon, [class*="icon"], [class*="search"]') || 
+              /typeahead|autocomplete|combobox|search/i.test(container.className || '')) {
+            return true;
+          }
+        }
+        return false;
+      })();
 
     const locationLike = this.fieldHintsLookLikeLocation(element);
 
     if (isTypeahead) {
-      if (locationLike) await this.delay(450);
-      let picked = await this.pickTypeaheadOption(element, value);
-      if (!picked) picked = await this.pickTypeaheadOption(element, value);
-      if (!picked && locationLike) {
-        await this.typeIncrementalForAutocomplete(element, value);
-        picked = await this.pickTypeaheadOption(element, value);
-      }
-      if (!picked && locationLike) {
-        picked = await this.pickTypeaheadOption(element, value);
-      }
+      if (locationLike) await this.delay(200);
+      const picked = await this.pickTypeaheadOption(element, value);
       if (picked) return true;
       const v = this.getEffectiveInputValue(element);
       if (v && !/^select\.{0,3}$/i.test(v)) return true;
-      element.dispatchEvent(new Event('blur', { bubbles: true }));
+      try {
+        interact.blur();
+        if (element !== interact) element.blur();
+      } catch (e) {}
       return false;
     }
+    
+    // Direct filling logic for non-typeahead inputs (First Name, Phone Number, etc.)
+    await this.typeValueIncrementally(element, value);
 
-    element.dispatchEvent(new Event('blur', { bubbles: true }));
+    // Blur natively to release focus cleanly
+    try {
+      interact.blur();
+      if (element !== interact) element.blur();
+    } catch (e) {}
+    await this.delay(50);
     return true;
   },
 
   isVisibleOption(el) {
     if (!el || el.getAttribute('aria-disabled') === 'true') return false;
     const style = window.getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
     const r = el.getBoundingClientRect();
     if (r.width < 2 && r.height < 2) return false;
-    return el.offsetParent !== null || style.position === 'fixed';
+    
+    // Special bypass for flatpickr and shadow root options
+    if (el.closest('.flatpickr-calendar') || el.getRootNode() instanceof ShadowRoot || el.closest('sf-typeahead-items') || el.closest('sf-autocomplete-items')) return true;
+    
+    return el.offsetParent !== null || style.position === 'fixed' || style.position === 'absolute';
   },
 
-  fireKey(element, key, code, keyCode) {
-    element.dispatchEvent(new KeyboardEvent('keydown', {
-      key, code, keyCode, which: keyCode, bubbles: true, cancelable: true
-    }));
-    element.dispatchEvent(new KeyboardEvent('keyup', {
-      key, code, keyCode, which: keyCode, bubbles: true, cancelable: true
-    }));
+  async fireKey(element, key, code, keyCode) {
+    const createEvent = (type) => {
+      const ev = new KeyboardEvent(type, {
+        key,
+        code,
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: window
+      });
+      Object.defineProperty(ev, 'keyCode', { value: keyCode, configurable: true });
+      Object.defineProperty(ev, 'which', { value: keyCode, configurable: true });
+      return ev;
+    };
+    element.dispatchEvent(createEvent('keydown'));
+    await this.delay(15);
+    element.dispatchEvent(createEvent('keyup'));
   },
 
   collectListboxOptions(listbox) {
     if (!listbox) return [];
-    const opts = [...listbox.querySelectorAll('[role="option"]')];
-    return [...new Set(opts)].filter(o => this.isVisibleOption(o));
-  },
-
-  async tryComboboxKeyboardCommit(keyTarget, visibleOptions, bestOption) {
-    const idx = visibleOptions.indexOf(bestOption);
-    if (idx < 0) return;
-    keyTarget.focus();
-    await this.delay(50);
-    for (let i = 0; i <= idx; i++) {
-      this.fireKey(keyTarget, 'ArrowDown', 'ArrowDown', 40);
-      await this.delay(50);
+    if (listbox.classList?.contains('flatpickr-calendar') || /flatpickr/i.test(listbox.className || '')) {
+      const calendarOpts = [...listbox.querySelectorAll('.flatpickr-monthSelect-month, .flatpickr-day, .flatpickr-month, span.flatpickr-monthSelect-month')];
+      if (calendarOpts.length > 0) {
+        return [...new Set(calendarOpts)].filter(o => this.isVisibleOption(o));
+      }
     }
-    this.fireKey(keyTarget, 'Enter', 'Enter', 13);
-    await this.delay(100);
+    let opts = [...listbox.querySelectorAll('[role="option"], sf-typeahead-item, sf-autocomplete-item')];
+    if (opts.length === 0) {
+      opts = [...listbox.querySelectorAll('li, [class*="option"], [class*="item"], [class*="result"]')];
+    }
+    return [...new Set(opts)].filter(o => this.isVisibleOption(o));
   },
 
   async pickTypeaheadOption(fieldInput, value) {
     const interact = this.getComboboxInteractTarget(fieldInput);
     const logHint = fieldInput.getAttribute('aria-label') || fieldInput.placeholder || fieldInput.id ||
       interact.getAttribute('aria-label') || interact.id || interact.getAttribute('name') || '';
-    console.log(`[JobAutoFill] pickTypeaheadOption for "${logHint}" value="${value}"`);
+    console.log(`[JobAutoFill Debug] pickTypeaheadOption started for "${logHint}" value="${value}"`);
     const valueStr = String(value).trim();
     const valueLower = valueStr.toLowerCase();
     const strictShort = /^(yes|no)$/i.test(valueStr);
@@ -491,8 +750,10 @@ const FormFiller = {
       return raw.replace(/\s+/g, ' ').trim().toLowerCase();
     };
 
-    const pickBestOption = (visible) => {
-      if (!visible.length) return null;
+    const pickBestOption = (visible, isFlatpickr = false) => {
+      if (!visible.length) {
+        return null;
+      }
       const notPlaceholder = (o) => !/^select\.{0,3}$/i.test(optionText(o));
       const pool = strictShort ? visible.filter(notPlaceholder) : visible;
       const searchIn = pool.length ? pool : visible;
@@ -505,7 +766,10 @@ const FormFiller = {
           break;
         }
       }
-      if (exact) return exact;
+      if (exact) {
+        console.log(`[JobAutoFill Debug] pickBestOption matched EXACT option: "${optionText(exact)}"`);
+        return exact;
+      }
       if (strictShort) return null;
 
       let partial = null;
@@ -516,99 +780,156 @@ const FormFiller = {
           break;
         }
       }
-      if (partial) return partial;
+      if (partial) {
+        console.log(`[JobAutoFill Debug] pickBestOption matched PARTIAL option: "${optionText(partial)}"`);
+        return partial;
+      }
+
+      if (isFlatpickr) {
+        return null;
+      }
 
       const highlighted = visible.find(o => o.getAttribute('aria-selected') === 'true') ||
         visible.find(o => /highlight|focus|active/i.test(String(o.className || '')));
-      if (highlighted) return highlighted;
+      if (highlighted) {
+        console.log(`[JobAutoFill Debug] pickBestOption fallback to HIGHLIGHTED option: "${optionText(highlighted)}"`);
+        return highlighted;
+      }
+      
+      console.log(`[JobAutoFill Debug] pickBestOption fallback to FIRST option: "${optionText(visible[0])}"`);
       return visible[0];
     };
 
-    const tryOpenAndCollect = async () => {
-      interact.focus();
-      await this.delay(80);
-      let lb = this.getListboxElForField(fieldInput);
-      let visible = this.collectListboxOptions(lb);
-      if (visible.length) return { lb, visible };
-
-      this.fireKey(interact, 'ArrowDown', 'ArrowDown', 40);
-      await this.delay(200);
-      lb = this.getListboxElForField(fieldInput);
-      visible = this.collectListboxOptions(lb);
-      if (visible.length) return { lb, visible };
-
-      this.fireKey(interact, ' ', 'Space', 32);
-      await this.delay(200);
-      lb = this.getListboxElForField(fieldInput);
-      visible = this.collectListboxOptions(lb);
-      if (visible.length) return { lb, visible };
-
-      const r = interact.getBoundingClientRect();
-      if (r.width > 4 && r.height > 4) {
-        const cx = r.left + r.width / 2;
-        const cy = r.top + r.height / 2;
-        const hit = document.elementFromPoint(cx, cy);
-        if (hit && hit !== interact && typeof hit.click === 'function') {
-          hit.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
-          hit.click();
-        } else {
-          interact.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
-          interact.click();
-        }
-      } else {
-        interact.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-        interact.click();
-      }
-      await this.delay(250);
-      lb = this.getListboxElForField(fieldInput);
-      visible = this.collectListboxOptions(lb);
+    const checkOptions = () => {
+      const lb = this.getListboxElForField(fieldInput);
+      const visible = this.collectListboxOptions(lb);
       return { lb, visible };
     };
 
-    await this.delay(200);
-
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const { visible } = await tryOpenAndCollect();
-      const best = pickBestOption(visible);
-      if (best) {
-        if (strictShort) {
-          await this.tryComboboxKeyboardCommit(interact, visible, best);
-          await this.delay(120);
-          const ev = this.getEffectiveInputValue(fieldInput).toLowerCase().replace(/\s+/g, ' ').trim();
-          if (ev === valueLower) {
-            fieldInput.dispatchEvent(new Event('blur', { bubbles: true }));
-            await this.delay(50);
-            return true;
-          }
+    const pollForOptions = async (timeoutMs) => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        const { lb, visible } = checkOptions();
+        if (visible.length > 0) {
+          return { lb, visible };
         }
-
-        best.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-        best.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
-        best.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-        best.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-        best.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true }));
-        best.click();
-
-        await this.delay(220);
-        fieldInput.dispatchEvent(new Event('input', { bubbles: true }));
-        fieldInput.dispatchEvent(new Event('change', { bubbles: true }));
-        fieldInput.dispatchEvent(new Event('blur', { bubbles: true }));
-        await this.delay(50);
-        return true;
+        await this.delay(200);
       }
-      await this.delay(120);
+      return { lb: null, visible: [] };
+    };
+
+    const triggerReactChange = (el) => {
+      const reactPropsKey = Object.keys(el).find(key => key.startsWith('__reactProps$') || key.startsWith('__reactEventHandlers$'));
+      if (reactPropsKey && el[reactPropsKey] && el[reactPropsKey].onChange) {
+        try {
+          el[reactPropsKey].onChange({ target: el, currentTarget: el });
+        } catch (e) {}
+      }
+    };
+
+    const isWritableInput = (el) => {
+      if (!el) return false;
+      const tag = el.tagName?.toLowerCase();
+      return tag === 'input' || tag === 'textarea' || el.getAttribute('contenteditable') === 'true';
+    };
+
+    const dispatchEvents = (el, val) => {
+      if (!el) return;
+      el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
+      triggerReactChange(el);
+    };
+
+    const hasInteractInput = interact && interact !== fieldInput && isWritableInput(interact);
+
+    // Call our new unified focus-secured incremental typing engine!
+    await this.typeValueIncrementally(fieldInput, valueStr);
+    await this.delay(100);
+
+    // Trigger dropdown by ArrowDown once
+    this.fireKey(interact, 'ArrowDown', 'ArrowDown', 40);
+    
+    // Poll for up to 8 seconds
+    let { lb, visible } = await pollForOptions(8000);
+
+    console.log(`[JobAutoFill Debug] Found ${visible.length} options inside listbox:`, visible.map(o => optionText(o)));
+
+    const isFp = !!(lb && (lb.classList?.contains('flatpickr-calendar') || /flatpickr/i.test(lb.className || '')));
+    const best = pickBestOption(visible, isFp);
+
+    const commitBestOptionViaKeyboard = async (keyTarget, visibleOptions, bestOption) => {
+      const idx = visibleOptions.indexOf(bestOption);
+      if (idx < 0) return false;
+      
+      keyTarget.focus();
+      await this.delay(100);
+      
+      console.log(`[JobAutoFill Debug] Navigating to option at index ${idx} via ArrowDown...`);
+      for (let i = 0; i <= idx; i++) {
+        this.fireKey(keyTarget, 'ArrowDown', 'ArrowDown', 40);
+        await this.delay(100);
+      }
+      
+      console.log(`[JobAutoFill Debug] Pressing Enter to select option...`);
+      this.fireKey(keyTarget, 'Enter', 'Enter', 13);
+      await this.delay(300);
+      return true;
+    };
+
+    if (best) {
+      console.log(`[JobAutoFill Debug] Selected best option: "${optionText(best)}"`);
+      
+      // Try keyboard selection commit first (extremely reliable for Angular/React)
+      let committed = false;
+      try {
+        committed = await commitBestOptionViaKeyboard(interact, visible, best);
+      } catch (e) {
+        console.warn('[JobAutoFill] Keyboard selection commit failed:', e);
+      }
+
+      // Check if value is now populated
+      const ev = this.getEffectiveInputValue(fieldInput).toLowerCase().replace(/\s+/g, ' ').trim();
+      const hasValue = ev && !/^select\.{0,3}$/i.test(ev);
+
+      if (!committed || !hasValue) {
+        console.log('[JobAutoFill Debug] Keyboard commit did not populate value. Falling back to Mouse Click...');
+        try {
+          best.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          best.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, cancelable: true }));
+          best.dispatchEvent(new PointerEvent('pointerenter', { bubbles: false, cancelable: false }));
+          best.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
+          best.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false, cancelable: false }));
+          best.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+          best.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+          best.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+          best.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true }));
+          best.click();
+          await this.delay(250);
+        } catch (e) {
+          console.warn('[JobAutoFill] Mouse click selection failed:', e);
+        }
+      }
+
+      dispatchEvents(fieldInput, fieldInput.value);
+      try {
+        interact.blur();
+        if (fieldInput !== interact) fieldInput.blur();
+      } catch (e) {}
+      
+      if (hasInteractInput) {
+        dispatchEvents(interact, interact.value);
+      }
+      await this.delay(50);
+      return true;
     }
 
-    const lb0 = this.getListboxElForField(fieldInput);
+    // Try document-wide option fallback search
     const searchRoots = [];
-    if (lb0) searchRoots.push(lb0);
     const pac = document.querySelector('.pac-container');
     if (pac) searchRoots.push(pac);
     const formScope = fieldInput.closest('form, #application_form, [id*="application"]');
     if (formScope) searchRoots.push(formScope);
-    const questionScope = fieldInput.closest(
-      '[class*="question"], .application-question, [data-question-id], [class*="application-question"]'
-    );
+    const questionScope = fieldInput.closest('[class*="question"], .application-question, [data-question-id]');
     if (questionScope) searchRoots.push(questionScope);
     searchRoots.push(document.body);
 
@@ -626,31 +947,67 @@ const FormFiller = {
         '[class*="LocationSuggestion"]',
         'li[role="menuitem"]'
       ].join(', ');
-      root.querySelectorAll(sel).forEach(o => candidates.push(o));
-      const visible = [...new Set(candidates)].filter(o => this.isVisibleOption(o));
-      return pickBestOption(visible);
+      this.querySelectorAllDeep(sel, root).forEach(o => candidates.push(o));
+      const vis = [...new Set(candidates)].filter(o => this.isVisibleOption(o));
+      const fp = !!(root && (root.classList?.contains('flatpickr-calendar') || /flatpickr/i.test(root.className || '')));
+      return pickBestOption(vis, fp);
     };
 
-    let best = null;
     for (const root of searchRoots) {
-      best = tryPickFromRoot(root);
-      if (best) break;
+      const fb = tryPickFromRoot(root);
+      if (fb) {
+        fb.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        try {
+          fb.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, cancelable: true }));
+          fb.dispatchEvent(new PointerEvent('pointerenter', { bubbles: false, cancelable: false }));
+          fb.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
+          fb.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false, cancelable: false }));
+          fb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+          fb.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+          fb.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+          fb.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true }));
+        } catch (e) {}
+        fb.click();
+        await this.delay(250);
+        
+        dispatchEvents(fieldInput, fieldInput.value);
+        try {
+          interact.blur();
+          if (fieldInput !== interact) fieldInput.blur();
+        } catch (e) {}
+        
+        if (hasInteractInput) {
+          dispatchEvents(interact, interact.value);
+        }
+        return true;
+      }
     }
 
-    if (!best) return false;
+    // Final Last-Resort Fallback: Blind Keyboard Commit
+    console.log(`[JobAutoFill Debug] Blind keyboard commit fallback on "${logHint}"`);
+    try {
+      interact.focus();
+      await this.delay(100);
+      this.fireKey(interact, 'ArrowDown', 'ArrowDown', 40);
+      await this.delay(150);
+      this.fireKey(interact, 'Enter', 'Enter', 13);
+      await this.delay(250);
+      
+      // Check if value was committed
+      const ev = this.getEffectiveInputValue(fieldInput).toLowerCase().replace(/\s+/g, ' ').trim();
+      if (ev && !/^select\.{0,3}$/i.test(ev)) {
+        console.log(`[JobAutoFill Debug] Blind keyboard commit succeeded for "${logHint}" (value: "${ev}")`);
+        try {
+          interact.blur();
+          if (fieldInput !== interact) fieldInput.blur();
+        } catch (e) {}
+        return true;
+      }
+    } catch (e) {
+      console.warn(`[JobAutoFill] Blind keyboard commit failed for "${logHint}":`, e);
+    }
 
-    best.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    best.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
-    best.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    best.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-    best.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true }));
-    best.click();
-
-    await this.delay(220);
-    fieldInput.dispatchEvent(new Event('input', { bubbles: true }));
-    fieldInput.dispatchEvent(new Event('change', { bubbles: true }));
-    fieldInput.dispatchEvent(new Event('blur', { bubbles: true }));
-    return true;
+    return false;
   },
 
   fillSelect(element, value) {
@@ -678,7 +1035,7 @@ const FormFiller = {
 
     if (match) {
       element.value = match.value;
-      element.dispatchEvent(new Event('change', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
       return true;
     }
 
@@ -696,13 +1053,13 @@ const FormFiller = {
         const lab = document.querySelector(`label[for="${CSS.escape(radio.id)}"]`);
         if (lab) {
           lab.click();
-          radio.dispatchEvent(new Event('change', { bubbles: true }));
+          radio.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
           return;
         }
       }
       radio.checked = true;
       radio.click();
-      radio.dispatchEvent(new Event('change', { bubbles: true }));
+      radio.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
     };
 
     // Single-radio fields: each option has a unique name (Ashby pattern).
@@ -804,8 +1161,8 @@ const FormFiller = {
     const shouldCheck = /^(yes|true|1|checked|agree)$/i.test(String(value));
     if (element.checked !== shouldCheck) {
       element.checked = shouldCheck;
-      element.dispatchEvent(new Event('change', { bubbles: true }));
-      element.dispatchEvent(new Event('click', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
+      element.dispatchEvent(new Event('click', { bubbles: true, cancelable: true, composed: true }));
     }
     return true;
   },
@@ -829,9 +1186,9 @@ const FormFiller = {
           lab.click();
         } else {
           checkbox.checked = shouldCheck;
-          checkbox.dispatchEvent(new Event('click', { bubbles: true }));
+          checkbox.dispatchEvent(new Event('click', { bubbles: true, cancelable: true, composed: true }));
         }
-        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+        checkbox.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
         changed = true;
       }
     }
@@ -882,8 +1239,8 @@ const FormFiller = {
   fillContentEditable(element, value) {
     element.focus();
     element.innerHTML = value.replace(/\n/g, '<br>');
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
+    element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
     return true;
   },
 
@@ -900,8 +1257,8 @@ const FormFiller = {
       dataTransfer.items.add(file);
       fileInput.files = dataTransfer.files;
 
-      fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-      fileInput.dispatchEvent(new Event('input', { bubbles: true }));
+      fileInput.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
+      fileInput.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
 
       return true;
     } catch (e) {
@@ -1031,8 +1388,8 @@ const FormFiller = {
     dataTransfer.items.add(file);
     fileInput.files = dataTransfer.files;
 
-    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-    fileInput.dispatchEvent(new Event('input', { bubbles: true }));
+    fileInput.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
+    fileInput.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
 
     return true;
   },
@@ -1044,8 +1401,8 @@ const FormFiller = {
     dataTransfer.items.add(file);
     fileInput.files = dataTransfer.files;
 
-    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-    fileInput.dispatchEvent(new Event('input', { bubbles: true }));
+    fileInput.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
+    fileInput.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
 
     return true;
   },

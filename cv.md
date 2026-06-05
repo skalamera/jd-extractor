@@ -86,6 +86,7 @@ Technical Support & Operations leader with 10+ years in high-growth SaaS, buildi
 - Career Essentials in Data Analysis | Microsoft | July 2023
 - Freshdesk Product Expert | Freshworks | July 2023
 - Customer Service Professional Certificate | Zendesk | July 2023
+- Designing & Implementing a Conversational Framework for Support Teams | Intercom | 2024
 - Career Essentials in Project Management | Microsoft & LinkedIn | July 2023
 
 ---

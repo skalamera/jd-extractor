@@ -15,8 +15,8 @@ const btnGetJd = document.getElementById("btn-get-jd");
 
 let currentTab = "clips";
 let filterDate = null;
-let sortByRating = false;
-let groupByOption = "date";
+let sortByRating = true;
+let groupByOption = "status";
 let allClips = [];
 let activeClipIdx = null;
 let resumeFileName = "None";
@@ -242,7 +242,7 @@ function render() {
   }
 
   if (displayClips.length === 0) {
-    let emptyMsg = "No clips yet.<br>Highlight text on any page, right-click,<br>and choose <strong>Save to jayobee</strong>.";
+    let emptyMsg = "No clips yet.<br>Highlight text on any page, right-click,<br>and choose <strong>Save to Clyde</strong>.";
     if (currentTab === "saved") emptyMsg = "No saved clips.<br>Click the heart icon on a clip to save it.";
     if (currentTab === "tracker") emptyMsg = filterDate || (trackerSearch && trackerSearch.value) ? "No tracked applications match the filters." : "No tracked applications.<br>Toggle the 'Track' switch on a clip.";
     if (currentTab === "archived") emptyMsg = filterDate || (trackerSearch && trackerSearch.value) ? "No archived applications match the filters." : "No archived applications.<br>Move jobs to Rejected or Accepted to see them here.";
@@ -455,6 +455,7 @@ function createClipElement(clip, isActive) {
       </div>
       ${(currentTab === 'tracker' || currentTab === 'archived') ? `<button class="btn-action btn-prep" data-gen="prep" data-idx="${idx}" title="Generate STAR behavioral interview stories">Interview Prep</button>` : ''}
       <button class="btn-action btn-linkedin" data-gen="network" data-idx="${idx}" title="Copy LinkedIn outreach message">LinkedIn Message</button>
+      <button class="btn-action btn-clyde" data-clyde-sync="${idx}" title="Sync job description to Clyde Desktop App" data-clyde-idx="${idx}">Sync to&nbsp;<span style="font-weight:700;">Cockpit</span></button>
       ${(currentTab !== 'tracker' && currentTab !== 'archived') ? `<button class="btn-action primary" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);" data-autofill="${idx}" title="Auto-fill application with AI">AI Apply</button>` : ''}
     </div>
     <div class="gen-feedback" data-fb="${idx}"></div>
@@ -662,6 +663,14 @@ container.addEventListener("click", (e) => {
     handleAiApply(idx, applyBtn);
     return;
   }
+
+  // Sync to Cockpit (Clyde Desktop)
+  const clydeBtn = e.target.closest("[data-clyde-sync]");
+  if (clydeBtn && !clydeBtn.disabled) {
+    const idx = parseInt(clydeBtn.dataset.clydeSync, 10);
+    handleClydeSync(idx, clydeBtn);
+    return;
+  }
 });
 
 container.addEventListener("focusout", (e) => {
@@ -828,6 +837,63 @@ async function handleGenerate(clipIdx, type) {
        clickedBtn.textContent = clickedBtn.dataset.origLabel || GEN_LABELS[type];
     }
   }
+}
+
+// ── Clyde Desktop Sync ─────────────────────────────────────────────────────────
+
+async function handleClydeSync(clipIdx, btn) {
+  btn.disabled = true;
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner" style="border-width:2px;width:10px;height:10px;"></span> Syncing...';
+
+  const clip = allClips[clipIdx];
+  if (!clip) {
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+    return;
+  }
+
+  try {
+    const data = await chrome.storage.local.get(['clydeHost', 'clydePort']);
+    const host = data.clydeHost || '127.0.0.1';
+    const port = parseInt(data.clydePort) || 4593;
+    const opts = { host, port };
+
+    const clydeClient = await loadClydeClient();
+
+    // Check if Clyde is reachable first
+    const availability = await clydeClient.isAvailable(opts);
+    if (!availability.available) {
+      throw new Error('Clyde Desktop not reachable. Ensure the app is running and check settings.');
+    }
+
+    await clydeClient.syncJobToClyde(
+      clip.companyName || 'Unknown Company',
+      clip.text || '',
+      clip.jobTitle || '',
+      opts
+    );
+
+    const card = container.querySelector(`.clip[data-idx="${clipIdx}"]`);
+    const feedback = card ? card.querySelector('[data-fb]') : null;
+    showFeedback(feedback, 'success', `Synced to Clyde Cockpit ${'\u2705'}`);
+    btn.innerHTML = 'Synced!';
+    setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 2000);
+  } catch (e) {
+    const card = container.querySelector(`.clip[data-idx="${clipIdx}"]`);
+    const feedback = card ? card.querySelector('[data-fb]') : null;
+    showFeedback(feedback, 'error', `Clyde sync failed: ${e.message}`);
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+  }
+}
+
+/**
+ * Dynamically load the clyde-client.js module in the popup context.
+ * Uses the global ClydeClient loaded via script tag to comply with CSP.
+ */
+async function loadClydeClient() {
+  return window.ClydeClient || window.__clydeClient;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

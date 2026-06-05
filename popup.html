@@ -544,6 +544,17 @@
       color: hsl(270, 70%, 35%);
     }
 
+    .btn-action.btn-clyde {
+      background: #f0f9ff;
+      border-color: #38bdf8;
+      color: #0284c7;
+    }
+    .btn-action.btn-clyde:hover {
+      background: #e0f2fe;
+      border-color: #0284c7;
+      color: #0369a1;
+    }
+
     .btn-active {
       font-size: 10px;
       font-weight: 500;
@@ -681,7 +692,7 @@
 </head>
 <body>
   <header>
-    <h1>jayobee</h1>
+    <h1>Clyde</h1>
     <img src="icons/popup_ui_header.svg" alt="logo" class="center-icon">
     <div class="header-actions">
       <button id="btn-guide" class="header-btn" title="User Guide">
@@ -704,14 +715,14 @@
 
   <div class="tracker-filters" id="tracker-filters" style="display: flex;">
     <select id="group-by-select" style="padding: 4px 8px; border: 1px solid #e5e7eb; border-radius: 4px; font-family: inherit; font-size: 11px; color: #374151; outline: none; background: #fff; cursor: pointer;">
-      <option value="date">Group by Date</option>
       <option value="status">Group by Status</option>
+      <option value="date">Group by Date</option>
     </select>
     <input type="text" id="tracker-search" placeholder="Search..." style="padding: 4px 8px; border: 1px solid #e5e7eb; border-radius: 4px; font-family: inherit; font-size: 11px; color: #374151; outline: none; flex: 1;" />
     <input type="date" id="date-picker" title="Filter by Date" />
     <button class="clear-date-btn" id="clear-date-btn">Clear Filter</button>
     <label class="sort-toggle-label">
-      <input type="checkbox" id="sort-rating-toggle" />
+      <input type="checkbox" id="sort-rating-toggle" checked />
       Sort by Rating
     </label>
   </div>
@@ -738,6 +749,7 @@
     </div>
   </div>
 
+  <script src="lib/clyde-client.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

@@ -1,17 +1,17 @@
-importScripts('lib/storage.js', 'lib/gemini.js');
+importScripts('lib/storage.js', 'lib/gemini.js', 'lib/clyde-client.js');
 
 // ── Context menus ──────────────────────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: "save-selection",
-    title: "Save to jayobee",
+    title: "Save to Clyde",
     contexts: ["selection"]
   });
 
   chrome.contextMenus.create({
     id: "ai-answer",
-    title: "Answer with AI (Gemini)",
+    title: "Answer with AI",
     contexts: ["selection", "page", "editable"]
   });
 
@@ -61,7 +61,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       const activeClipIdx = clips.length - 1;
       
       await new Promise(r => chrome.storage.local.set({ clips, activeClipIdx }, r));
-      showToast(tab.id, "Saved to jayobee ✓", "#1a1a2e");
+      showToast(tab.id, "Saved to Clyde ✓", "#1a1a2e");
 
       // Extract details in background
       const apiKey = data.geminiApiKey?.trim();
@@ -84,6 +84,9 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
               freshData.clips[targetIdx].mainGap = extracted.main_gap || "";
               freshData.clips[targetIdx].mitigation = extracted.mitigation || "";
               await chrome.storage.local.set({ clips: freshData.clips });
+              
+              // Trigger auto-sync to Clyde Desktop App
+              await autoSyncClipToClyde(freshData.clips[targetIdx]);
            }
          } catch(e) {
            console.error("Extraction failed", e);
@@ -195,7 +198,7 @@ async function handleExtractPage(tabId, selectedText, url) {
   const activeClipIdx = clips.length - 1;
   
   await new Promise(r => chrome.storage.local.set({ clips, activeClipIdx }, r));
-  if (tabId) showToast(tabId, "Saved to jayobee ✓", "#1a1a2e");
+  if (tabId) showToast(tabId, "Saved to Clyde ✓", "#1a1a2e");
 
   // Extract details in background
   const apiKey = data.geminiApiKey?.trim();
@@ -219,6 +222,9 @@ async function handleExtractPage(tabId, selectedText, url) {
           freshData.clips[targetIdx].mitigation = extracted.mitigation || "";
           
           await new Promise(r => chrome.storage.local.set({clips: freshData.clips}, r));
+          
+          // Trigger auto-sync to Clyde Desktop App
+          await autoSyncClipToClyde(freshData.clips[targetIdx]);
        }
      } catch (err) {
        console.error("Extraction error:", err);
@@ -1013,10 +1019,11 @@ function buildCvHtml(d) {
     <ul>
       <li>Generative AI, Data Analysis, and Project Management</li>
     </ul>
-    <div style="font-weight: bold; font-size: 11px; margin-top: 2px;">Support Platform Expertise <span style="font-weight: normal;">| Various Issuers | 2024 \u2013 2025</span></div>
+    <div style="font-weight: bold; font-size: 11px; margin-top: 2px;">Support Platform Expertise <span style="font-weight: normal;">| Various Issuers | 2024 \u2013 2026</span></div>
     <ul>
-      <li><strong>Zendesk:</strong> Customer Service Professional Certificate</li>
+      <li><strong>Intercom:</strong> Designing & Implementing a Conversational Framework for Support Teams</li>
       <li><strong>Freshworks:</strong> Freshdesk Product Expert</li>
+      <li><strong>Zendesk:</strong> Customer Service Professional Certificate</li>
     </ul>
     <div style="font-weight: bold; font-size: 11px; margin-top: 2px;">Academic & Executive AI <span style="font-weight: normal;">| Various Issuers | 2025 \u2013 2026</span></div>
     <ul>
@@ -1567,4 +1574,31 @@ async function handleClearResume() {
   await Storage.remove('structuredResume');
   return { success: true };
 }
+
+async function autoSyncClipToClyde(clip) {
+  try {
+    const data = await chrome.storage.local.get(['clydeAutoSync', 'clydeHost', 'clydePort']);
+    if (data.clydeAutoSync) {
+      const host = data.clydeHost || '127.0.0.1';
+      const port = parseInt(data.clydePort) || 4593;
+      const opts = { host, port };
+      
+      const availability = await ClydeClient.isAvailable(opts);
+      if (availability.available) {
+        await ClydeClient.syncJobToClyde(
+          clip.companyName || 'Unknown Company',
+          clip.text || '',
+          clip.jobTitle || '',
+          opts
+        );
+        console.log('[background] Auto-synced clip to Clyde:', clip.companyName);
+      } else {
+        console.warn('[background] Auto-sync skipped: Clyde is not reachable.');
+      }
+    }
+  } catch (err) {
+    console.error('[background] Auto-sync to Clyde failed:', err.message);
+  }
+}
+
 

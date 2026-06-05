@@ -8,10 +8,29 @@ const GenericHandler = {
 
   getFields() {
     const fields = [];
-    const forms = document.querySelectorAll('form');
-    const contexts = forms.length > 0 ? Array.from(forms) : [document];
+    const contexts = [document];
 
     const processed = new Set();
+
+    const isElementVisible = (el) => {
+      if (!el) return false;
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return false;
+      return true;
+    };
+
+    const querySelectorAllDeep = (selector, root = document) => {
+      const elements = Array.from(root.querySelectorAll(selector));
+      const children = root.querySelectorAll('*');
+      for (const child of children) {
+        if (child.shadowRoot) {
+          elements.push(...querySelectorAllDeep(selector, child.shadowRoot));
+        }
+      }
+      return elements;
+    };
 
     const getChoiceLabel = (input) => {
       if (input.id) {
@@ -70,7 +89,7 @@ const GenericHandler = {
         if (!container) continue;
 
         const matches = Array.from(container.querySelectorAll(`input[type="${inputType}"]`))
-          .filter(el => el.offsetParent !== null);
+          .filter(isElementVisible);
         if (matches.length > 1) return { container, matches };
       }
 
@@ -104,17 +123,25 @@ const GenericHandler = {
     };
 
     contexts.forEach(ctx => {
+      console.log(`[JobAutoFill Debug] getFields started. Document has:`, {
+        allInputsCount: document.querySelectorAll('input').length,
+        allDeepInputsCount: querySelectorAllDeep('input').length,
+        visibleInputsCount: Array.from(document.querySelectorAll('input')).filter(el => isElementVisible(el)).length,
+        visibleDeepInputsCount: querySelectorAllDeep('input').filter(el => isElementVisible(el)).length,
+        textInputsFound: querySelectorAllDeep('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="file"]):not([type="radio"]):not([type="checkbox"]), textarea', ctx).length
+      });
+
       // Text inputs and textareas
-      ctx.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="file"]):not([type="radio"]):not([type="checkbox"]), textarea').forEach(el => {
-        if (processed.has(el) || el.offsetParent === null) return;
+      querySelectorAllDeep('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="file"]):not([type="radio"]):not([type="checkbox"]), textarea', ctx).forEach(el => {
+        if (processed.has(el) || !isElementVisible(el)) return;
         processed.add(el);
         const field = extractFieldInfo(el);
         if (field) fields.push(field);
       });
 
       // Selects
-      ctx.querySelectorAll('select').forEach(el => {
-        if (processed.has(el) || el.offsetParent === null) return;
+      querySelectorAllDeep('select', ctx).forEach(el => {
+        if (processed.has(el) || !isElementVisible(el)) return;
         processed.add(el);
         const field = extractFieldInfo(el);
         if (field) {
@@ -125,11 +152,11 @@ const GenericHandler = {
 
       // Radio groups
       const radioNames = new Set();
-      ctx.querySelectorAll('input[type="radio"]').forEach(el => {
-        if (processed.has(el) || el.offsetParent === null) return;
+      querySelectorAllDeep('input[type="radio"]', ctx).forEach(el => {
+        if (processed.has(el) || !isElementVisible(el)) return;
         if (radioNames.has(el.name)) return;
         radioNames.add(el.name);
-        const radios = ctx.querySelectorAll(`input[type="radio"][name="${CSS.escape(el.name)}"]`);
+        const radios = querySelectorAllDeep(`input[type="radio"][name="${CSS.escape(el.name)}"]`, ctx);
         const container = el.closest('fieldset, .form-group, .field, .question, [class*="field"], [class*="group"], [class*="question"], [class*="survey"]') ||
           el.closest('div');
         const label = getGroupLabel(container, el.name);
@@ -147,8 +174,8 @@ const GenericHandler = {
       });
 
       // Checkbox groups
-      ctx.querySelectorAll('input[type="checkbox"]').forEach(el => {
-        if (processed.has(el) || el.offsetParent === null) return;
+      querySelectorAllDeep('input[type="checkbox"]', ctx).forEach(el => {
+        if (processed.has(el) || !isElementVisible(el)) return;
 
         const { container, matches } = getGroupContainer(el, 'checkbox');
         if (matches.length > 1) {
@@ -168,8 +195,8 @@ const GenericHandler = {
       });
 
       // Standalone checkboxes
-      ctx.querySelectorAll('input[type="checkbox"]').forEach(el => {
-        if (processed.has(el) || el.offsetParent === null) return;
+      querySelectorAllDeep('input[type="checkbox"]', ctx).forEach(el => {
+        if (processed.has(el) || !isElementVisible(el)) return;
         processed.add(el);
         const field = extractFieldInfo(el);
         if (field) {
@@ -179,7 +206,7 @@ const GenericHandler = {
       });
 
       // File inputs
-      ctx.querySelectorAll('input[type="file"]').forEach(el => {
+      querySelectorAllDeep('input[type="file"]', ctx).forEach(el => {
         if (processed.has(el)) return;
         processed.add(el);
         const field = extractFieldInfo(el);
@@ -190,8 +217,8 @@ const GenericHandler = {
       });
 
       // Contenteditable fields
-      ctx.querySelectorAll('[contenteditable="true"]').forEach(el => {
-        if (processed.has(el) || el.offsetParent === null) return;
+      querySelectorAllDeep('[contenteditable="true"]', ctx).forEach(el => {
+        if (processed.has(el) || !isElementVisible(el)) return;
         processed.add(el);
         const label = el.getAttribute('aria-label') ||
           el.closest('.field, .form-group')?.querySelector('label')?.textContent?.trim() || '';

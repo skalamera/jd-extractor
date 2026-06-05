@@ -235,12 +235,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         divider
       ].join("\n");
     });
-    const content = "JAYOBEE EXPORT\n" + "\u2550".repeat(60) + "\n\n" + lines.join("\n\n");
+    const content = "CLYDE EXPORT\n" + "\u2550".repeat(60) + "\n\n" + lines.join("\n\n");
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `jayobee-export-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.download = `clyde-export-${new Date().toISOString().slice(0, 10)}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   });
@@ -250,6 +250,193 @@ document.addEventListener('DOMContentLoaded', async () => {
     await chrome.storage.local.set({ clips: [], activeClipIdx: null });
     alert("All JD clips have been cleared.");
   });
+
+  // -----------------------------------------------------------------------
+  // Clyde Desktop Integration
+  // -----------------------------------------------------------------------
+
+  const clydeHostInput = document.getElementById('clyde-host');
+  const clydePortInput = document.getElementById('clyde-port');
+  const clydeAutoSync = document.getElementById('clyde-auto-sync');
+  const clydePullResume = document.getElementById('clyde-pull-resume');
+  const clydeTestBtn = document.getElementById('clyde-test-btn');
+  const clydeSyncAllBtn = document.getElementById('clyde-sync-all-btn');
+  const clydeStatusBadge = document.getElementById('clyde-status-badge');
+  const clydeStatus = document.getElementById('clyde-status');
+
+  function setClydeStatus(text, className) {
+    clydeStatus.textContent = text;
+    clydeStatus.className = 'status ' + (className || '');
+  }
+
+  function setClydeBadge(text, connected) {
+    clydeStatusBadge.textContent = text;
+    clydeStatusBadge.style.background = connected ? '#dcfce7' : '#fee2e2';
+    clydeStatusBadge.style.color = connected ? '#16a34a' : '#dc2626';
+  }
+
+  // Load Clyde settings
+  const clydeData = await chrome.storage.local.get([
+    'clydeHost', 'clydePort', 'clydeAutoSync', 'clydePullResume'
+  ]);
+
+  if (clydeData.clydeHost) clydeHostInput.value = clydeData.clydeHost;
+  if (clydeData.clydePort) clydePortInput.value = clydeData.clydePort;
+  if (clydeData.clydeAutoSync) clydeAutoSync.checked = true;
+  if (clydeData.clydePullResume) clydePullResume.checked = true;
+
+  // Poll connection status
+  async function checkClydeConnection() {
+    try {
+      const clydeClient = await loadClydeClient();
+      const result = await clydeClient.isAvailable({
+        host: clydeHostInput.value,
+        port: parseInt(clydePortInput.value) || 4593
+      });
+      if (result.available) {
+        setClydeBadge(`Connected ${'\u{1F7E2}'}`, true);
+        return true;
+      } else {
+        setClydeBadge(`Disconnected ${'\u{1F534}'}`, false);
+        return false;
+      }
+    } catch (_) {
+      setClydeBadge('Disconnected \u{1F534}', false);
+      return false;
+    }
+  }
+
+  // Initial connection check
+  checkClydeConnection();
+
+  // Test connection button
+  clydeTestBtn.addEventListener('click', async () => {
+    setClydeStatus('Testing connection...', 'loading');
+    try {
+      const clydeClient = await loadClydeClient();
+      const result = await clydeClient.isAvailable({
+        host: clydeHostInput.value,
+        port: parseInt(clydePortInput.value) || 4593
+      });
+      if (result.available) {
+        setClydeStatus(`Connected! Clyde v${result.version || 'unknown'}`, 'success');
+        setClydeBadge(`Connected ${'\u{1F7E2}'}`, true);
+      } else {
+        setClydeStatus('Could not connect to Clyde', 'error');
+        setClydeBadge('Disconnected \u{1F534}', false);
+      }
+    } catch (e) {
+      setClydeStatus(`Connection failed: ${e.message}`, 'error');
+      setClydeBadge('Disconnected \u{1F534}', false);
+    }
+  });
+
+  // Sync all clips button
+  clydeSyncAllBtn.addEventListener('click', async () => {
+    const { clips = [] } = await chrome.storage.local.get({ clips: [] });
+    if (!clips.length) {
+      setClydeStatus('No clips to sync', 'error');
+      return;
+    }
+
+    setClydeStatus(`Syncing ${clips.length} clip(s)...`, 'loading');
+    clydeSyncAllBtn.disabled = true;
+    clydeSyncAllBtn.textContent = 'Syncing...';
+
+    let synced = 0;
+    let failed = 0;
+
+    try {
+      const clydeClient = await loadClydeClient();
+      const opts = {
+        host: clydeHostInput.value,
+        port: parseInt(clydePortInput.value) || 4593
+      };
+
+      for (const clip of clips) {
+        try {
+          await clydeClient.syncJobToClyde(
+            clip.companyName || 'Unknown Company',
+            clip.text || '',
+            clip.jobTitle || '',
+            opts
+          );
+          synced++;
+        } catch (e) {
+          console.error('[Clyde] Sync failed for clip:', clip.id, e.message);
+          failed++;
+        }
+      }
+
+      setClydeStatus(
+        `Done: ${synced} synced, ${failed} failed`,
+        failed === 0 ? 'success' : 'error'
+      );
+    } catch (e) {
+      setClydeStatus(`Sync failed: ${e.message}`, 'error');
+    } finally {
+      clydeSyncAllBtn.disabled = false;
+      clydeSyncAllBtn.textContent = 'Sync All Clips';
+    }
+  });
+
+  // Helper: load the clyde-client module dynamically
+  async function loadClydeClient() {
+    return window.ClydeClient || window.__clydeClient;
+  }
+
+  // Extend save handler to persist Clyde settings
+  const originalSaveHandler = saveBtn._listeners ? saveBtn._listeners[0] : null;
+  const existingClick = saveBtn.click;
+  // Don't override existing — append to save function
+  const origSave = saveBtn._listenerOriginal || (() => {
+    // Trigger the original save logic. We need to grab the original listener.
+    // Since we can't easily inspect, we'll add our save alongside it.
+  });
+
+  // Instead: patch the save to also persist Clyde settings
+  // We can't easily intercept the existing handler, so we monkey-patch
+  // chrome.storage.local.set within the context of save.
+  // Better approach: add a separate click handler that wraps storage.set
+
+  // Since saveBtn's existing handler already does chrome.storage.local.set,
+  // we add our persistence as a post-save step via a MutationObserver hack.
+  // Simplest: just add Clyde-specific save that runs alongside.
+  // We'll listen to the saveBtn click and add our data after a small delay.
+
+  saveBtn.addEventListener('click', async () => {
+    // Wait a tick for the original handler
+    await new Promise(r => setTimeout(r, 50));
+
+    await chrome.storage.local.set({
+      clydeHost: clydeHostInput.value.trim(),
+      clydePort: parseInt(clydePortInput.value) || 4593,
+      clydeAutoSync: clydeAutoSync.checked,
+      clydePullResume: clydePullResume.checked
+    });
+  });
+
+  // Pull Master Resume from Clyde on startup if enabled
+  if (clydeData.clydePullResume) {
+    try {
+      const clydeClient = await loadClydeClient();
+      const opts = {
+        host: clydeHostInput.value,
+        port: parseInt(clydePortInput.value) || 4593
+      };
+      const settings = await clydeClient.getSettings(opts);
+      if (settings && settings.resumeText) {
+        await chrome.storage.local.set({ masterResumeText: settings.resumeText });
+        resumeTextArea.value = settings.resumeText;
+        uploadArea.classList.add('has-file');
+        uploadText.textContent = 'Synced from Clyde';
+        clearResumeBtn.classList.remove('hidden');
+        console.log('[Clyde] Master resume pulled from Clyde');
+      }
+    } catch (e) {
+      console.warn('[Clyde] Failed to pull master resume:', e.message);
+    }
+  }
 
   // Helper functions
   function populateProfile(profile) {

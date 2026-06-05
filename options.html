@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>jayobee - Settings</title>
+  <title>Clyde - Settings</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -101,7 +101,7 @@
   <div class="container">
     <div class="card">
       <div style="text-align: center;">
-        <img src="icons/settings.svg" alt="jayobee Settings" style="height: 110px; margin-bottom: 10px;">
+        <img src="icons/settings.svg" alt="Clyde Settings" style="height: 110px; margin-bottom: 10px;">
       </div>
       <p class="sub">Configure your Gemini API key, upload your resume, and set profile details to enable AI-powered job application answers.</p>
 
@@ -150,6 +150,45 @@
         <div id="audit-status" class="status"></div>
         <div id="audit-results" class="hidden" style="margin-top: 12px; padding: 16px; background: #fefce8; border: 1px solid #fef08a; border-radius: 8px; font-size: 12px; line-height: 1.5; color: #4b5563; white-space: pre-wrap;"></div>
       </div>
+    </div>
+
+    <!-- Clyde Desktop Integration card -->
+    <div class="card" id="clyde-settings-card">
+      <h2>
+        <span>Clyde Desktop Integration</span>
+        <span id="clyde-status-badge" style="display: inline-block; font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle;">Checking…</span>
+      </h2>
+      <p class="sub">Connect to the Clyde Desktop App to sync job descriptions and documents directly to your Career Cockpit.</p>
+
+      <div class="field">
+        <label for="clyde-host">Clyde Host</label>
+        <input type="text" id="clyde-host" placeholder="127.0.0.1" value="127.0.0.1">
+      </div>
+
+      <div class="field">
+        <label for="clyde-port">Clyde API Port</label>
+        <input type="number" id="clyde-port" placeholder="4593" value="4593">
+      </div>
+
+      <div class="field" style="margin-top: 16px;">
+        <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #1f2937; cursor: pointer;">
+          <input type="checkbox" id="clyde-auto-sync" style="margin-top: 2px;">
+          <span>Auto-sync clipped job descriptions to Clyde</span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #1f2937; cursor: pointer;">
+          <input type="checkbox" id="clyde-pull-resume" style="margin-top: 2px;">
+          <span>Pull Master Resume from Clyde on startup</span>
+        </label>
+      </div>
+
+      <div style="margin-top: 16px; display: flex; gap: 10px;">
+        <button id="clyde-test-btn" class="secondary">Test Connection</button>
+        <button id="clyde-sync-all-btn" class="secondary">Sync All Clips</button>
+      </div>
+      <div id="clyde-status" class="status"></div>
     </div>
 
     <div class="card">
@@ -290,6 +329,7 @@
     </div>
   </div>
 
+  <script src="lib/clyde-client.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "jayobee",
+  "name": "Clyde",
   "version": "1.2.0",
   "description": "Highlight text, get AI answers, generate CVs, and auto-fill job applications.",
   "permissions": [
@@ -19,7 +19,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "jayobee",
+    "default_title": "Clyde",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -32,6 +32,15 @@
     "128": "icons/icon128.png"
   },
   "options_page": "options.html",
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "anti-ai-writing-style.md",
+        "lib/clyde-client.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
