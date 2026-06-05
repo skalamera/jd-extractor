@@ -133,6 +133,10 @@ const FormFiller = {
 
     const isValidListbox = (el) => {
       if (!el) return false;
+      if (el.contains(interact) || el.contains(fieldInput)) return false;
+      const tag = el.tagName?.toLowerCase();
+      if (['input', 'textarea', 'button'].includes(tag)) return false;
+      
       const cn = String(el.className || '').toLowerCase();
       const id = String(el.id || '').toLowerCase();
       const role = String(el.getAttribute('role') || '').toLowerCase();
@@ -142,21 +146,6 @@ const FormFiller = {
         return false;
       }
       return true;
-    };
-
-    const isPositionedNear = (inputEl, candidateEl) => {
-      const r1 = inputEl.getBoundingClientRect();
-      const r2 = candidateEl.getBoundingClientRect();
-      if (r2.width === 0 || r2.height === 0) return false;
-      
-      const vertDist = Math.min(
-        Math.abs(r2.top - r1.bottom),
-        Math.abs(r2.bottom - r1.top)
-      );
-      const horizDist = Math.max(0, r1.left - r2.right, r2.left - r1.right);
-      
-      // Candidate should be close to the input vertically and horizontally
-      return vertDist <= 150 && horizDist <= 150;
     };
 
     const seen = new Set();
@@ -184,9 +173,9 @@ const FormFiller = {
       if (fb && isValidListbox(fb)) return fb;
     }
 
-    // Fallback 2: Search globally (crossing shadow roots) for any visible listbox-like element
+    // Fallback 2: Search globally (crossing shadow roots) for visible listbox-like elements
     try {
-      const globalElements = this.querySelectorAllDeep(
+      const visibleListboxes = this.querySelectorAllDeep(
         '[role="listbox"], ul, .results, sf-typeahead-items, sf-autocomplete-items, ' +
         '[class*="results"], [class*="listbox"], [class*="dropdown"], [class*="menu"], ' +
         '[class*="autocomplete-panel"], [class*="suggestions-panel"], [class*="dropdown-panel"], ' +
@@ -194,13 +183,30 @@ const FormFiller = {
         '[class*="popover"], [class*="selection"], [class*="options"], ' +
         '[class*="spl-listbox"], [class*="spl-dropdown"], [class*="spl-menu"], [class*="spl-select"], ' +
         '[class*="spl-typeahead"], [class*="spl-autocomplete"], [class*="spl-option"], [class*="spl-popup"], [class*="spl-overlay"]'
-      );
-      for (const el of globalElements) {
-        if (!isValidListbox(el)) continue;
-        if (!isPositionedNear(interact, el)) continue;
+      ).filter(el => {
+        if (!isValidListbox(el)) return false;
         const style = window.getComputedStyle(el);
-        if (style.display !== 'none' && style.visibility !== 'hidden' && el.getBoundingClientRect().height > 10) {
-          return el;
+        return style.display !== 'none' && style.visibility !== 'hidden' && el.getBoundingClientRect().height > 10;
+      });
+
+      // Strict constraint: If there is exactly one visible listbox on the page, use it
+      if (visibleListboxes.length === 1) {
+        return visibleListboxes[0];
+      }
+
+      // If there are multiple, resolve by high-confidence proximity (tighter 120px threshold)
+      if (visibleListboxes.length > 1) {
+        const isPositionedNear = (inputEl, candidateEl) => {
+          const r1 = inputEl.getBoundingClientRect();
+          const r2 = candidateEl.getBoundingClientRect();
+          if (r2.width === 0 || r2.height === 0) return false;
+          const vertDist = Math.min(Math.abs(r2.top - r1.bottom), Math.abs(r2.bottom - r1.top));
+          const horizDist = Math.max(0, r1.left - r2.right, r2.left - r1.right);
+          return vertDist <= 120 && horizDist <= 120;
+        };
+        const nearby = visibleListboxes.filter(el => isPositionedNear(interact, el));
+        if (nearby.length === 1) {
+          return nearby[0];
         }
       }
     } catch {}
@@ -538,6 +544,35 @@ const FormFiller = {
   async fillTextInput(element, value) {
     const interact = this.getComboboxInteractTarget(element);
     
+    // Phone number cleaning & formatting
+    const isPhone = element.type === 'tel' || 
+                    interact.type === 'tel' || 
+                    /\b(phone|mobile|cell|telephone)\b/i.test(element.id + ' ' + element.name + ' ' + (element.getAttribute('placeholder') || '') + ' ' + interact.id + ' ' + interact.name);
+    
+    if (isPhone) {
+      let cleaned = String(value).trim();
+      if (cleaned.startsWith('+')) {
+        const parent = element.closest('.field, .form-group, .form-field, [class*="group"], [class*="field"]');
+        const hasCountryCodeSelector = parent && parent.querySelector('select, [role="combobox"], [class*="select"], [class*="country-code"]');
+        
+        if (hasCountryCodeSelector) {
+          if (cleaned.startsWith('+1')) {
+            cleaned = cleaned.substring(2).trim();
+          } else {
+            const match = cleaned.match(/^\+(\d{1,3})/);
+            if (match) {
+              cleaned = cleaned.substring(match[0].length).trim();
+            }
+          }
+        }
+      }
+      const digitsOnly = cleaned.replace(/\D/g, '');
+      if (digitsOnly.length >= 7) {
+        cleaned = digitsOnly;
+      }
+      value = cleaned;
+    }
+    
     // Programmatic flatpickr date setter support
     const fp = element._flatpickr || interact._flatpickr;
     if (fp && typeof fp.setDate === 'function') {
@@ -640,7 +675,7 @@ const FormFiller = {
         const elementLabel = element.getAttribute('aria-label') || element.placeholder || element.id || '';
         const resolvedLabel = (typeof getFieldLabel === 'function') ? getFieldLabel(element) : '';
         const textToTest = `${elementLabel} ${resolvedLabel} ${element.name || ''}`.toLowerCase();
-        if (isSR && /\b(title|company|office\s+location|institution|school\s+location|degree|city)\b/i.test(textToTest)) {
+        if (isSR && /\b(title|company|office\s+location|institution|school\s+location|degree|city|country|region)\b/i.test(textToTest)) {
           return true;
         }
 
@@ -694,12 +729,7 @@ const FormFiller = {
     const style = window.getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
     const r = el.getBoundingClientRect();
-    if (r.width < 2 && r.height < 2) return false;
-    
-    // Special bypass for flatpickr and shadow root options
-    if (el.closest('.flatpickr-calendar') || el.getRootNode() instanceof ShadowRoot || el.closest('sf-typeahead-items') || el.closest('sf-autocomplete-items')) return true;
-    
-    return el.offsetParent !== null || style.position === 'fixed' || style.position === 'absolute';
+    return r.width >= 2 && r.height >= 2;
   },
 
   async fireKey(element, key, code, keyCode) {
@@ -724,16 +754,44 @@ const FormFiller = {
   collectListboxOptions(listbox) {
     if (!listbox) return [];
     if (listbox.classList?.contains('flatpickr-calendar') || /flatpickr/i.test(listbox.className || '')) {
-      const calendarOpts = [...listbox.querySelectorAll('.flatpickr-monthSelect-month, .flatpickr-day, .flatpickr-month, span.flatpickr-monthSelect-month')];
+      const calendarOpts = this.querySelectorAllDeep('.flatpickr-monthSelect-month, .flatpickr-day, .flatpickr-month, span.flatpickr-monthSelect-month', listbox);
       if (calendarOpts.length > 0) {
         return [...new Set(calendarOpts)].filter(o => this.isVisibleOption(o));
       }
     }
-    let opts = [...listbox.querySelectorAll('[role="option"], sf-typeahead-item, sf-autocomplete-item')];
+    let opts = this.querySelectorAllDeep('[role="option"], sf-typeahead-item, sf-autocomplete-item', listbox);
     if (opts.length === 0) {
-      opts = [...listbox.querySelectorAll('li, [class*="option"], [class*="item"], [class*="result"]')];
+      opts = this.querySelectorAllDeep('li, a, [class*="option"], [class*="item"], [class*="result"], [class*="choice"], [class*="select"]', listbox);
     }
     return [...new Set(opts)].filter(o => this.isVisibleOption(o));
+  },
+
+  async waitForDropdownToClose(lb, timeoutMs = 2000) {
+    if (!lb) return;
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (!document.body.contains(lb)) return;
+      const style = window.getComputedStyle(lb);
+      if (style.display === 'none' || style.visibility === 'hidden') return;
+      const opts = this.collectListboxOptions(lb);
+      if (opts.length === 0) return;
+      await this.delay(50);
+    }
+  },
+
+  async waitForOptions(fieldInput, timeoutMs = 4000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const lb = this.getListboxElForField(fieldInput);
+      if (lb) {
+        const visible = this.collectListboxOptions(lb);
+        if (visible.length > 0) {
+          return { lb, visible };
+        }
+      }
+      await this.delay(100);
+    }
+    return { lb: null, visible: [] };
   },
 
   async pickTypeaheadOption(fieldInput, value) {
@@ -744,6 +802,22 @@ const FormFiller = {
     const valueStr = String(value).trim();
     const valueLower = valueStr.toLowerCase();
     const strictShort = /^(yes|no)$/i.test(valueStr);
+
+    const cleanCompareText = (str) => {
+      return String(str || '')
+        .toLowerCase()
+        .replace(/[’'"]/g, '')
+        .replace(/[^a-z0-9]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const targetClean = cleanCompareText(valueStr);
+
+    let typeValue = valueStr;
+    if (/[’'"]/.test(typeValue)) {
+      typeValue = typeValue.replace(/[’'"]/g, '');
+    }
 
     const optionText = (option) => {
       const raw = option.getAttribute('aria-label') || option.textContent || '';
@@ -761,7 +835,7 @@ const FormFiller = {
       let exact = null;
       for (const option of searchIn) {
         const text = optionText(option);
-        if (text === valueLower) {
+        if (text === valueLower || cleanCompareText(text) === targetClean) {
           exact = option;
           break;
         }
@@ -775,7 +849,11 @@ const FormFiller = {
       let partial = null;
       for (const option of visible) {
         const text = optionText(option);
-        if (text.includes(valueLower) || (text && valueLower.includes(text.split(',')[0]?.trim()))) {
+        const textClean = cleanCompareText(text);
+        if (text.includes(valueLower) || 
+            textClean.includes(targetClean) || 
+            (text && valueLower.includes(text.split(',')[0]?.trim())) ||
+            (textClean && targetClean.includes(textClean.split(' ')[0]?.trim()))) {
           partial = option;
           break;
         }
@@ -798,24 +876,6 @@ const FormFiller = {
       
       console.log(`[JobAutoFill Debug] pickBestOption fallback to FIRST option: "${optionText(visible[0])}"`);
       return visible[0];
-    };
-
-    const checkOptions = () => {
-      const lb = this.getListboxElForField(fieldInput);
-      const visible = this.collectListboxOptions(lb);
-      return { lb, visible };
-    };
-
-    const pollForOptions = async (timeoutMs) => {
-      const start = Date.now();
-      while (Date.now() - start < timeoutMs) {
-        const { lb, visible } = checkOptions();
-        if (visible.length > 0) {
-          return { lb, visible };
-        }
-        await this.delay(200);
-      }
-      return { lb: null, visible: [] };
     };
 
     const triggerReactChange = (el) => {
@@ -842,15 +902,15 @@ const FormFiller = {
 
     const hasInteractInput = interact && interact !== fieldInput && isWritableInput(interact);
 
-    // Call our new unified focus-secured incremental typing engine!
-    await this.typeValueIncrementally(fieldInput, valueStr);
+    // Step 1: Incremental Focus-Secured Typing
+    await this.typeValueIncrementally(fieldInput, typeValue);
     await this.delay(100);
 
-    // Trigger dropdown by ArrowDown once
+    // Step 2: Trigger Dropdown Opening (Via ArrowDown Key)
     this.fireKey(interact, 'ArrowDown', 'ArrowDown', 40);
     
-    // Poll for up to 8 seconds
-    let { lb, visible } = await pollForOptions(8000);
+    // Step 3: Wait for Dropdown Options (State Machine Transition to DropdownRendered)
+    let { lb, visible } = await this.waitForOptions(fieldInput, 8000);
 
     console.log(`[JobAutoFill Debug] Found ${visible.length} options inside listbox:`, visible.map(o => optionText(o)));
 
@@ -879,7 +939,7 @@ const FormFiller = {
     if (best) {
       console.log(`[JobAutoFill Debug] Selected best option: "${optionText(best)}"`);
       
-      // Try keyboard selection commit first (extremely reliable for Angular/React)
+      // Step 4: Keyboard Selection Commit (Highly framework-compatible)
       let committed = false;
       try {
         committed = await commitBestOptionViaKeyboard(interact, visible, best);
@@ -887,10 +947,11 @@ const FormFiller = {
         console.warn('[JobAutoFill] Keyboard selection commit failed:', e);
       }
 
-      // Check if value is now populated
+      // Verify if value is now successfully populated
       const ev = this.getEffectiveInputValue(fieldInput).toLowerCase().replace(/\s+/g, ' ').trim();
       const hasValue = ev && !/^select\.{0,3}$/i.test(ev);
 
+      // Fallback: Dispatch pointer/hover & mouse click sequence
       if (!committed || !hasValue) {
         console.log('[JobAutoFill Debug] Keyboard commit did not populate value. Falling back to Mouse Click...');
         try {
@@ -919,11 +980,14 @@ const FormFiller = {
       if (hasInteractInput) {
         dispatchEvents(interact, interact.value);
       }
+
+      // Step 5: Wait for Dropdown Closure to prevent sibling cross-contamination
+      await this.waitForDropdownToClose(lb);
       await this.delay(50);
       return true;
     }
 
-    // Try document-wide option fallback search
+    // Fallback: Try document-wide option search
     const searchRoots = [];
     const pac = document.querySelector('.pac-container');
     if (pac) searchRoots.push(pac);
@@ -979,11 +1043,15 @@ const FormFiller = {
         if (hasInteractInput) {
           dispatchEvents(interact, interact.value);
         }
+        const fbParentListbox = fb.closest('[role="listbox"], ul, [class*="listbox"], [class*="dropdown"], [class*="menu"]');
+        if (fbParentListbox) {
+          await this.waitForDropdownToClose(fbParentListbox);
+        }
         return true;
       }
     }
 
-    // Final Last-Resort Fallback: Blind Keyboard Commit
+    // Step 6: Blind Keyboard Commit Fallback
     console.log(`[JobAutoFill Debug] Blind keyboard commit fallback on "${logHint}"`);
     try {
       interact.focus();
@@ -1001,6 +1069,10 @@ const FormFiller = {
           interact.blur();
           if (fieldInput !== interact) fieldInput.blur();
         } catch (e) {}
+        const activeLb = this.getListboxElForField(fieldInput);
+        if (activeLb) {
+          await this.waitForDropdownToClose(activeLb);
+        }
         return true;
       }
     } catch (e) {

@@ -408,6 +408,17 @@
       }
     }
 
+    const isPhone = field.element.type === 'tel' || 
+                    /\b(phone|mobile|cell|telephone)\b/i.test(field.label || '');
+    if (isPhone) {
+      const actualDigits = String(actual).replace(/\D/g, '');
+      const expectedDigits = String(expectedValue).replace(/\D/g, '');
+      if (actualDigits && expectedDigits) {
+        const ok = actualDigits.includes(expectedDigits) || expectedDigits.includes(actualDigits);
+        return { ok, actual: rawTrim };
+      }
+    }
+
     const normalizedActual = FormFiller.normalizeChoiceText(actual);
     const normalizedExpected = FormFiller.normalizeChoiceText(String(expectedValue));
     const expectedShort = /^(yes|no)$/i.test(String(expectedValue).trim());
@@ -444,6 +455,7 @@
     try {
       // 1. Get profile and resume data
       const profileData = await chrome.runtime.sendMessage({ type: 'GET_PROFILE' });
+      console.log('[JobAutoFill Debug] Profile loaded:', profileData.profile);
       if (!profileData.hasApiKey) throw new Error('Please set your Gemini API key in the extension popup.');
       if (!profileData.hasResume) throw new Error('Please upload your resume in the extension popup.');
 
