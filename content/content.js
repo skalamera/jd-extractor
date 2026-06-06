@@ -473,6 +473,7 @@
 
       // Detect portal handler
       const handler = PortalHandlers.detect() || GenericHandler;
+      const isSmartRecruiters = handler?.name === 'SmartRecruiters';
 
       // Click all "+ Add" buttons (Experience, Education rows) to expand dynamic form fields (crossing shadow boundaries)
       // Skip if the handler has a customFill method that manages its own card expansion
@@ -601,7 +602,6 @@
         });
 
         // 5. Attach resume first (only on pass 1) - Skip on SmartRecruiters to avoid auto-parser race conditions
-        const isSmartRecruiters = PortalHandlers.detect()?.name === 'SmartRecruiters';
         if (pass === 1 && fileFields.length > 0 && !isSmartRecruiters) {
           updateStatus('Attaching resume...', 32);
           const resumeFile = await chrome.runtime.sendMessage({ type: 'GET_RESUME_FILE' });
