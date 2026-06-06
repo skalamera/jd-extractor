@@ -456,6 +456,7 @@
       // 1. Get profile and resume data
       const profileData = await chrome.runtime.sendMessage({ type: 'GET_PROFILE' });
       console.log('[JobAutoFill Debug] Profile loaded:', profileData.profile);
+      console.log('[JobAutoFill Debug] RAW PROFILE DATA:', JSON.stringify(profileData, null, 2));
       if (!profileData.hasApiKey) throw new Error('Please set your Gemini API key in the extension popup.');
       if (!profileData.hasResume) throw new Error('Please upload your resume in the extension popup.');
 

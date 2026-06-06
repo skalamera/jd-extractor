@@ -335,6 +335,13 @@ PortalHandlers.register({
     }
     if (input.tagName.toLowerCase() === 'input') {
       const dateObj = this._parseDateToDateObject(dateText);
+      let formattedDate = dateText;
+      if (dateObj) {
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const year = dateObj.getFullYear();
+        formattedDate = `${month}/${year}`;
+      }
+
       let fp = null;
       let curr = input;
       while (curr) {
@@ -346,15 +353,15 @@ PortalHandlers.register({
       }
 
       if (fp && typeof fp.setDate === 'function') {
-        console.log(`[SmartRecruiters]   Found flatpickr instance. Setting date via flatpickr:`, dateObj || dateText);
+        console.log(`[SmartRecruiters]   Found flatpickr instance. Setting date via flatpickr:`, dateObj || formattedDate);
         try {
-          fp.setDate(dateObj || dateText, true);
+          fp.setDate(dateObj || formattedDate, true);
         } catch (e) {
           console.error(`[SmartRecruiters]   Failed to set date via flatpickr:`, e);
-          this._setInputValue(input, dateText);
+          this._setInputValue(input, formattedDate);
         }
       } else {
-        this._setInputValue(input, dateText);
+        this._setInputValue(input, formattedDate);
       }
 
       // Propagate events up the shadow/DOM hierarchy to trigger Angular FormControl updates
