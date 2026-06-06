@@ -13,13 +13,9 @@ PortalHandlers.register({
 
   getFields() {
     const fields = [];
-    const allElements = this._findAllDeep(document, '*');
-    const sfElements = allElements.filter(el => {
-      const tag = el.tagName.toLowerCase();
-      return tag.startsWith('sf-') || tag.startsWith('spl-');
-    });
+    const sfSelector = 'sf-input, sf-select, sf-textarea, sf-checkbox, sf-radio-group, sf-date-picker';
 
-    sfElements.forEach(el => {
+    this._findAllDeep(document, sfSelector).forEach(el => {
       if (el.offsetParent === null) return;
       const shadowRoot = el.shadowRoot;
       if (!shadowRoot) return;
@@ -47,18 +43,8 @@ PortalHandlers.register({
     // Native elements not inside sf-*/spl-* wrappers
     this._findAllDeep(document, 'input:not([type="hidden"]):not([type="submit"]):not([type="file"]), select, textarea').forEach(el => {
       if (el.offsetParent === null) return;
-
-      let hasCustomParent = false;
-      let curr = el;
-      while (curr) {
-        const tag = curr.tagName?.toLowerCase() || '';
-        if (tag.startsWith('sf-') || tag.startsWith('spl-')) {
-          hasCustomParent = true;
-          break;
-        }
-        curr = curr.parentNode || curr.host;
-      }
-      if (hasCustomParent) return;
+      // Skip if already captured via sf-* wrapper
+      if (el.closest(sfSelector)) return;
 
       const card = el.closest('sf-card, spl-card, oc-experience-entry, oc-experience-edit-form, oc-education-entry, oc-education-edit-form');
       if (card && (card.hasAttribute('edit-mode') || card.getAttribute('mode') === 'edit' || card.tagName.toLowerCase().includes('edit-form'))) return;
