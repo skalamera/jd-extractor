@@ -599,8 +599,9 @@
           return true;
         });
 
-        // 5. Attach resume first (only on pass 1)
-        if (pass === 1 && fileFields.length > 0) {
+        // 5. Attach resume first (only on pass 1) - Skip on SmartRecruiters to avoid auto-parser race conditions
+        const isSmartRecruiters = PortalHandlers.detect()?.name === 'SmartRecruiters';
+        if (pass === 1 && fileFields.length > 0 && !isSmartRecruiters) {
           updateStatus('Attaching resume...', 32);
           const resumeFile = await chrome.runtime.sendMessage({ type: 'GET_RESUME_FILE' });
           if (resumeFile) {
@@ -836,6 +837,24 @@
             }
           }
           await FormFiller.delay(600);
+        }
+      }
+
+      // Attach resume at the very end on SmartRecruiters to avoid auto-parser race conditions
+      if (isSmartRecruiters) {
+        const fileFields = handler.getFields().filter(f => getFieldPurpose(f) === 'resumeFile');
+        if (fileFields.length > 0) {
+          updateStatus('Attaching resume...', 98);
+          const resumeFile = await chrome.runtime.sendMessage({ type: 'GET_RESUME_FILE' });
+          if (resumeFile) {
+            const f = resolveFieldElement(fileFields[0]);
+            if (resumeFile.generateFromText) {
+               await FormFiller.attachGeneratedTextAsPdf(f.element, resumeFile.text, resumeFile.fileName);
+            } else {
+               await FormFiller.attachFile(f.element, resumeFile.data, resumeFile.fileName);
+            }
+            await FormFiller.delay(1000); // let upload commit
+          }
         }
       }
 
