@@ -1,4 +1,4 @@
-/* SmartRecruiters OneClick-UI Portal Handler
+/* SmartRecruiters OneClick-UI Portal Handler for Clyde Apply
  * Handles SmartRecruiters SPA with sf- custom elements (Shadow DOM),
  * multi-card Experience/Education sections, and "Present" date checkbox.
  */
@@ -8,21 +8,25 @@ PortalHandlers.register({
 
   detect(url) {
     return /smartrecruiters\.com/i.test(url) ||
-      !!document.querySelector('sf-root, sf-page, [class*="oneclick-ui"], [data-testid*="oneclick"]');
+      !!document.querySelector('sf-root, sf-page, spl-root, spl-page, [class*="oneclick-ui"], [data-testid*="oneclick"]');
   },
 
   getFields() {
     const fields = [];
-    const sfSelector = 'sf-input, sf-select, sf-textarea, sf-checkbox, sf-radio-group, sf-date-picker';
+    const allElements = this._findAllDeep(document, '*');
+    const sfElements = allElements.filter(el => {
+      const tag = el.tagName.toLowerCase();
+      return tag.startsWith('sf-') || tag.startsWith('spl-');
+    });
 
-    this._findAllDeep(document, sfSelector).forEach(el => {
+    sfElements.forEach(el => {
       if (el.offsetParent === null) return;
       const shadowRoot = el.shadowRoot;
       if (!shadowRoot) return;
 
       // Skip elements inside active editing cards — customFill handles those
-      const closestCard = el.closest('sf-card');
-      if (closestCard && closestCard.hasAttribute('edit-mode')) return;
+      const closestCard = el.closest('sf-card, spl-card, oc-experience-entry, oc-experience-edit-form, oc-education-entry, oc-education-edit-form');
+      if (closestCard && (closestCard.hasAttribute('edit-mode') || closestCard.getAttribute('mode') === 'edit' || closestCard.tagName.toLowerCase().includes('edit-form'))) return;
 
       const input = shadowRoot.querySelector('input:not([type="hidden"]):not([type="submit"]):not([type="file"]), select, textarea');
       if (!input) return;
@@ -40,14 +44,25 @@ PortalHandlers.register({
       }
     });
 
-    // Also include native elements not inside sf-* wrappers (e.g. legacy fields)
+    // Native elements not inside sf-*/spl-* wrappers
     this._findAllDeep(document, 'input:not([type="hidden"]):not([type="submit"]):not([type="file"]), select, textarea').forEach(el => {
       if (el.offsetParent === null) return;
-      // Skip if already captured via sf-* wrapper
-      if (el.closest(sfSelector)) return;
-      // Skip elements inside active sf-card edit mode
-      const card = el.closest('sf-card');
-      if (card && card.hasAttribute('edit-mode')) return;
+
+      let hasCustomParent = false;
+      let curr = el;
+      while (curr) {
+        const tag = curr.tagName?.toLowerCase() || '';
+        if (tag.startsWith('sf-') || tag.startsWith('spl-')) {
+          hasCustomParent = true;
+          break;
+        }
+        curr = curr.parentNode || curr.host;
+      }
+      if (hasCustomParent) return;
+
+      const card = el.closest('sf-card, spl-card, oc-experience-entry, oc-experience-edit-form, oc-education-entry, oc-education-edit-form');
+      if (card && (card.hasAttribute('edit-mode') || card.getAttribute('mode') === 'edit' || card.tagName.toLowerCase().includes('edit-form'))) return;
+
       const field = extractFieldInfo(el);
       if (field) fields.push(field);
     });
@@ -77,15 +92,6 @@ PortalHandlers.register({
     return { title, company };
   },
 
-  /* ------------------------------------------------------------------ */
-  /*  customFill: Multi-card Experience & Education workflow             */
-  /*  Handles the full cycle per entry:                                  */
-  /*    1. Click "+ Add"                                                 */
-  /*    2. Wait for the card to render in edit mode                      */
-  /*    3. Fill fields via Shadow DOM (double-write/dispatch)            */
-  /*    4. Click Save                                                    */
-  /*    5. Wait for card to commit                                       */
-  /* ------------------------------------------------------------------ */
   async customFill(profileData) {
     const structured = profileData?.structured || {};
     const profile = profileData?.profile || {};
@@ -102,41 +108,45 @@ PortalHandlers.register({
     }
   },
 
-  /* Internal helpers — prefixed with _ for clarity */
-
-  /* Find a sf-section by its header text */
   _findSection(labelKeyword) {
-    const sections = this._findAllDeep(document, 'sf-section');
+    console.log(`[SmartRecruiters] _findSection looking for: "${labelKeyword}"`);
+    const sections = this._findAllDeep(document, 'sf-section, spl-section, sf-card-group, spl-card-group');
+    console.log(`[SmartRecruiters] _findSection found ${sections.length} section elements`);
     for (const sec of sections) {
       const header = sec.getAttribute('label') || sec.getAttribute('header') || '';
       const text = sec.textContent?.toLowerCase() || '';
       if (header.toLowerCase().includes(labelKeyword) || text.includes(labelKeyword)) {
+        console.log(`[SmartRecruiters] Found section matching "${labelKeyword}" by header/text:`, sec);
         return sec;
       }
     }
-    // Fallback 1: search by header elements deep inside shadow roots
     const headers = this._findAllDeep(document, 'h1, h2, h3, h4, h5, h6, .section-header, .section-title, [class*="section-header"], [class*="section-title"]');
     for (const hdr of headers) {
       if (hdr.textContent.toLowerCase().includes(labelKeyword)) {
-        // Climb up crossing shadow root boundaries to find container
         let current = hdr;
         while (current) {
           if (current.nodeType === Node.ELEMENT_NODE) {
             const tag = current.tagName?.toLowerCase() || '';
-            if (tag === 'sf-section' || tag.includes('card') || tag.includes('group') || current.classList?.contains('section') || current.id?.includes('section')) {
+            if (tag === 'sf-section' || tag === 'spl-section' || tag === 'sf-card-group' || tag === 'spl-card-group' || tag.includes('section') || tag.includes('card') || tag.includes('group') || current.classList?.contains('section') || current.id?.includes('section')) {
+              console.log(`[SmartRecruiters] Found section matching "${labelKeyword}" by header parent:`, current);
               return current;
             }
           }
           current = current.parentNode || current.host;
         }
+        const parent = hdr.parentElement;
+        if (parent && parent.querySelector('button, spl-button, sf-button, [role="button"]')) {
+          console.log(`[SmartRecruiters] Found header row containing button, returning its parent:`, parent.parentElement);
+          return parent.parentElement;
+        }
+        console.log(`[SmartRecruiters] Found section matching "${labelKeyword}" by header parentElement:`, hdr.parentElement);
         return hdr.parentElement;
       }
     }
-    // Fallback 2: Universal text-based elements search deep inside shadow roots
     const all = this._findAllDeep(document, '*');
     for (const el of all) {
       const tag = el.tagName?.toLowerCase() || '';
-      if (['script', 'style', 'svg', 'body', 'html', 'iframe', 'sf-root', 'sf-page'].includes(tag)) continue;
+      if (['script', 'style', 'svg', 'body', 'html', 'iframe', 'sf-root', 'sf-page', 'spl-root', 'spl-page'].includes(tag)) continue;
 
       const text = (el.textContent || '').trim().toLowerCase();
       if (text === labelKeyword || text === labelKeyword + '*' || text === labelKeyword + ':') {
@@ -144,61 +154,79 @@ PortalHandlers.register({
         while (current) {
           if (current.nodeType === Node.ELEMENT_NODE) {
             const currentTag = current.tagName?.toLowerCase() || '';
-            if (currentTag === 'sf-section' || currentTag === 'sf-card-group' || currentTag.includes('section') || currentTag.includes('card') || currentTag.includes('group') || current.classList?.contains('section') || current.id?.includes('section')) {
+            if (currentTag === 'sf-section' || currentTag === 'spl-section' || currentTag === 'sf-card-group' || currentTag === 'spl-card-group' || currentTag.includes('section') || currentTag.includes('card') || currentTag.includes('group') || current.classList?.contains('section') || current.id?.includes('section')) {
+              console.log(`[SmartRecruiters] Found section matching "${labelKeyword}" by text parent:`, current);
               return current;
             }
           }
           current = current.parentNode || current.host;
         }
+        const parent = el.parentElement;
+        if (parent && parent.querySelector('button, spl-button, sf-button, [role="button"]')) {
+          console.log(`[SmartRecruiters] Found header row containing button, returning its parent:`, parent.parentElement);
+          return parent.parentElement;
+        }
+        console.log(`[SmartRecruiters] Found section matching "${labelKeyword}" by text parentElement:`, el.parentElement);
         return el.parentElement;
       }
     }
+    console.log(`[SmartRecruiters] Section matching "${labelKeyword}" NOT found.`);
     return null;
   },
 
-  /* Click a button inside a container that matches text content (handles Shadow DOM) */
   async _clickButtonIn(container, textMatcher) {
-    // Search container itself and all shadow roots within
-    const candidates = this._findAllDeep(container, 'button, [role="button"], sf-button, a[class*="btn"], [class*="button"]');
+    const candidates = this._findAllDeep(container, 'button, [role="button"], sf-button, spl-button, a[class*="btn"], [class*="button"]');
+    console.log(`[SmartRecruiters] _clickButtonIn found ${candidates.length} candidates in container:`, container);
     for (const btn of candidates) {
-      const btnText = (btn.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      let btnText = (btn.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (!btnText) {
+        const host = btn.getRootNode()?.host;
+        if (host) {
+          btnText = (host.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          console.log(`[SmartRecruiters]     Retrieved text from shadow host (${host.tagName}): "${btnText}"`);
+        }
+      }
+      console.log(`[SmartRecruiters]   Candidate button: tag=${btn.tagName}, text="${btnText}", outerHTML=${btn.outerHTML?.substring(0, 100)}`);
       if (textMatcher(btnText)) {
         console.log(`[SmartRecruiters] Clicking button "${btnText}"`);
         btn.click();
         return true;
       }
     }
+    console.log(`[SmartRecruiters] No matching button found in container.`);
     return false;
   },
 
-  /* Deep search across Shadow DOM boundaries */
   _findAllDeep(container, selector) {
     const results = [];
     function walk(root) {
+      if (!root) return;
       try {
         results.push(...Array.from(root.querySelectorAll(selector)));
-      } catch (e) { /* cross-origin shadow roots might throw */ }
-      const allChildren = root.querySelectorAll('*');
-      for (const child of allChildren) {
-        if (child.shadowRoot) walk(child.shadowRoot);
+      } catch (e) { }
+      if (root.shadowRoot) {
+        walk(root.shadowRoot);
       }
+      try {
+        const allChildren = root.querySelectorAll('*');
+        for (const child of allChildren) {
+          if (child.shadowRoot) walk(child.shadowRoot);
+        }
+      } catch (e) { }
     }
     walk(container);
     return results;
   },
 
-  /* Find first matching element deep inside Shadow DOM */
   _findDeep(container, selector) {
     const all = this._findAllDeep(container, selector);
     return all.length > 0 ? all[0] : null;
   },
 
-  /* Set input value with double-write/dispatch (essential for Shadow DOM SPA frameworks) */
   _setInputValue(input, value) {
     if (!input) return;
     const tag = input.tagName.toLowerCase();
     if (tag === 'select') {
-      // Match option by text or value
       const options = Array.from(input.options);
       const match = options.find(o =>
         o.text.toLowerCase() === value.toLowerCase() ||
@@ -213,39 +241,39 @@ PortalHandlers.register({
       }
       return;
     }
-    // Double-write: set via native property descriptor for framework detection
     const nativeSetter = Object.getOwnPropertyDescriptor(
       input.constructor.prototype, 'value'
     ) || Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-    if (nativeSetter && nativeSetter.set) {
-      nativeSetter.set.call(input, value);
-    } else {
+    try {
+      if (nativeSetter && nativeSetter.set) {
+        nativeSetter.set.call(input, value);
+      } else {
+        input.value = value;
+      }
+    } catch (e) {
       input.value = value;
     }
-    // Dispatch input + change with composed: true so shadow-piercing frameworks detect it
     input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
     input.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
   },
 
-  /* Find a labeled input deep inside a card's shadow DOM */
   _findCardField(card, labels) {
-    // Try to find sf-* custom elements first
-    const sfElements = this._findAllDeep(card, 'sf-input, sf-select, sf-textarea, sf-date-picker, sf-checkbox');
+    const allElements = this._findAllDeep(card, '*');
+    const sfElements = allElements.filter(el => {
+      const tag = el.tagName.toLowerCase();
+      return tag.startsWith('sf-') || tag.startsWith('spl-');
+    });
     for (const sfEl of sfElements) {
       const text = sfEl.textContent?.toLowerCase() || '';
       const attr = (sfEl.getAttribute('label') || sfEl.getAttribute('name') || '').toLowerCase();
       for (const label of labels) {
         if (text.includes(label) || attr.includes(label)) {
-          // Get the actual input from shadow root
-          if (sfEl.shadowRoot) {
-            const input = sfEl.shadowRoot.querySelector('input:not([type="hidden"]), select, textarea');
-            return input || sfEl;
-          }
-          return sfEl;
+          // Perform a deep search for native inputs inside the shadow DOM hierarchy of the component
+          const input = this._findDeep(sfEl, 'input:not([type="hidden"]), select, textarea');
+          return input || sfEl;
         }
       }
     }
-    // Fallback: look for native input/select/textarea with matching name or placeholder
     const inputs = this._findAllDeep(card, 'input:not([type="hidden"]):not([type="submit"]), select, textarea');
     for (const inp of inputs) {
       const name = (inp.name || inp.placeholder || inp.id || '').toLowerCase();
@@ -256,49 +284,154 @@ PortalHandlers.register({
     return null;
   },
 
-  /* Fill a date picker field inside a card */
+  _parseDateToDateObject(dateStr) {
+    if (!dateStr) return null;
+    const clean = String(dateStr).trim();
+    if (!clean) return null;
+
+    // Try parsing YYYY-MM or YYYY-MM-DD
+    const ymdMatch = clean.match(/^(\d{4})[-/](\d{1,2})(?:[-/](\d{1,2}))?$/);
+    if (ymdMatch) {
+      const year = parseInt(ymdMatch[1], 10);
+      const month = parseInt(ymdMatch[2], 10) - 1;
+      const day = ymdMatch[3] ? parseInt(ymdMatch[3], 10) : 1;
+      return new Date(year, month, day);
+    }
+
+    // Try parsing MM/YYYY or MM-YYYY
+    const myMatch = clean.match(/^(\d{1,2})[-/](\d{4})$/);
+    if (myMatch) {
+      const month = parseInt(myMatch[1], 10) - 1;
+      const year = parseInt(myMatch[2], 10);
+      return new Date(year, month, 1);
+    }
+
+    // Try parsing Month YYYY (e.g. "January 2020" or "Jan 2020")
+    const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    const words = clean.toLowerCase().split(/[\s,]+/);
+    if (words.length >= 2) {
+      let monthIndex = -1;
+      let year = -1;
+      for (const w of words) {
+        const parsedInt = parseInt(w, 10);
+        if (parsedInt > 1900 && parsedInt < 2100) {
+          year = parsedInt;
+        } else {
+          const mIdx = months.findIndex(m => w.startsWith(m));
+          if (mIdx !== -1) {
+            monthIndex = mIdx;
+          }
+        }
+      }
+      if (year !== -1 && monthIndex !== -1) {
+        return new Date(year, monthIndex, 1);
+      }
+    }
+
+    // Fallback to native constructor
+    const nativeDate = new Date(clean);
+    if (!isNaN(nativeDate.getTime())) {
+      return nativeDate;
+    }
+
+    return null;
+  },
+
   async _fillDateField(card, labels, dateText) {
     if (!dateText) return;
     const field = this._findCardField(card, labels);
+    console.log(`[SmartRecruiters] _fillDateField looking for [${labels.join(', ')}], found:`, field);
     if (!field) return;
-    // For sf-date-picker, the actual input is inside shadow root
     let input = field;
-    if (field.tagName.toLowerCase() === 'sf-date-picker' && field.shadowRoot) {
-      input = field.shadowRoot.querySelector('input[type="text"], input[type="date"]');
+    if (input.tagName.toLowerCase() !== 'input') {
+      input = this._findDeep(field, 'input[type="text"], input[type="date"], input') || field;
+      console.log(`[SmartRecruiters]   Resolved custom date element to native input:`, input);
     }
     if (input.tagName.toLowerCase() === 'input') {
-      this._setInputValue(input, dateText);
+      const dateObj = this._parseDateToDateObject(dateText);
+      let fp = null;
+      let curr = input;
+      while (curr) {
+        if (curr._flatpickr) {
+          fp = curr._flatpickr;
+          break;
+        }
+        curr = curr.parentNode || curr.host;
+      }
+
+      if (fp && typeof fp.setDate === 'function') {
+        console.log(`[SmartRecruiters]   Found flatpickr instance. Setting date via flatpickr:`, dateObj || dateText);
+        try {
+          fp.setDate(dateObj || dateText, true);
+        } catch (e) {
+          console.error(`[SmartRecruiters]   Failed to set date via flatpickr:`, e);
+          this._setInputValue(input, dateText);
+        }
+      } else {
+        this._setInputValue(input, dateText);
+      }
+
+      // Propagate events up the shadow/DOM hierarchy to trigger Angular FormControl updates
+      let parent = input;
+      while (parent && parent !== card) {
+        parent.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
+        parent.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
+        parent = parent.parentNode || parent.host;
+      }
     }
   },
 
-  /* Fill a text input field inside a card (sf-input or sf-textarea) */
   async _fillTextField(card, labels, value) {
     if (!value) return;
     const field = this._findCardField(card, labels);
+    console.log(`[SmartRecruiters] _fillTextField looking for [${labels.join(', ')}], found:`, field);
     if (!field) return;
     let input = field;
-    if (field.shadowRoot) {
-      input = field.shadowRoot.querySelector('input:not([type="hidden"]), textarea') || field;
+    if (input.tagName.toLowerCase() !== 'input' && input.tagName.toLowerCase() !== 'textarea') {
+      input = this._findDeep(field, 'input:not([type="hidden"]), textarea') || field;
+      console.log(`[SmartRecruiters]   Resolved custom text element to native input:`, input);
     }
     this._setInputValue(input, value);
+
+    const isLocation = labels.some(l => l.includes('location') || l.includes('city'));
+    if (isLocation && input && input.tagName.toLowerCase() === 'input') {
+      console.log(`[SmartRecruiters] Location field detected. Simulating autocomplete selection...`);
+      try {
+        input.focus();
+      } catch (e) {}
+      await sleep(600);
+      
+      const fireKey = (el, key, code, keyCode) => {
+        const createEvent = (type) => {
+          const ev = new KeyboardEvent(type, { key, code, bubbles: true, cancelable: true, composed: true, view: window });
+          Object.defineProperty(ev, 'keyCode', { value: keyCode });
+          Object.defineProperty(ev, 'which', { value: keyCode });
+          return ev;
+        };
+        el.dispatchEvent(createEvent('keydown'));
+        el.dispatchEvent(createEvent('keyup'));
+      };
+
+      fireKey(input, 'ArrowDown', 'ArrowDown', 40);
+      await sleep(300);
+      fireKey(input, 'Enter', 'Enter', 13);
+    }
   },
 
-  /* Fill a dropdown/select field inside a card */
   async _fillSelectField(card, labels, value) {
     if (!value) return;
     const field = this._findCardField(card, labels.concat('select'));
+    console.log(`[SmartRecruiters] _fillSelectField looking for [${labels.join(', ')}], found:`, field);
     if (!field) return;
     let select = field;
-    if (field.shadowRoot) {
-      select = field.shadowRoot.querySelector('select') || field;
+    if (select.tagName.toLowerCase() !== 'select') {
+      select = this._findDeep(field, 'select') || field;
+      console.log(`[SmartRecruiters]   Resolved custom select element to native select:`, select);
     }
     this._setInputValue(select, value);
   },
 
-  /* Check/uncheck a checkbox inside a card (e.g. "Present" / "Currently working here") */
   async _handlePresentCheckbox(card, labels, shouldCheck) {
-    if (!shouldCheck) return;
-    // Look for sf-checkbox or native checkbox
     const cb = this._findCardField(card, labels);
     if (!cb) return;
     let checkbox = cb;
@@ -306,25 +439,23 @@ PortalHandlers.register({
       checkbox = cb.shadowRoot.querySelector('input[type="checkbox"]') || cb;
     }
     if (checkbox.tagName.toLowerCase() === 'input' && checkbox.type === 'checkbox') {
-      if (!checkbox.checked) {
+      if (checkbox.checked !== !!shouldCheck) {
         checkbox.click();
       }
     } else {
-      // Maybe it's a sf-checkbox itself — click to toggle on
-      try { cb.click(); } catch (e) { }
+      const isChecked = cb.hasAttribute('checked') || cb.getAttribute('aria-checked') === 'true' || cb.classList.contains('checked');
+      if (isChecked !== !!shouldCheck) {
+        try { cb.click(); } catch (e) { }
+      }
     }
   },
 
-  /* Fill all textarea fields from bullet points */
   async _fillDescriptionField(card, labels, bullets) {
     if (!bullets || bullets.length === 0) return;
-    const text = bullets.join('\n');
+    const text = Array.isArray(bullets) ? bullets.join('\n') : String(bullets);
     await this._fillTextField(card, labels, text);
   },
 
-  /* ------------------------------------------------------------------ */
-  /*  Fill a full section (experience or education) with multi-card loop */
-  /* ------------------------------------------------------------------ */
   async _fillSection(sectionType, records) {
     const isExp = sectionType === 'experience';
     const sectionLabel = isExp ? 'experience' : 'education';
@@ -334,73 +465,83 @@ PortalHandlers.register({
       return;
     }
 
+    console.log(`[SmartRecruiters] Section element for ${sectionLabel}:`, section);
     console.log(`[SmartRecruiters] Filling ${records.length} ${sectionType} entries...`);
 
     for (let i = 0; i < records.length; i++) {
       const record = records[i];
       console.log(`[SmartRecruiters] Processing ${sectionType} entry ${i + 1}/${records.length}`);
 
-      // Click "+ Add" / "Add Another" button inside this section
       const clicked = await this._clickButtonIn(section, text =>
         text === '+ add' || text === 'add' || text === '+add' ||
         text === 'add more' || text === 'add another' ||
         /^\+?\s*add(\s+(more|another|new|experience|education|position|entry|work|school))?\s*$/i.test(text)
       );
+      console.log(`[SmartRecruiters] Clicked status: ${clicked}`);
 
-      if (!clicked) {
-        console.log(`[SmartRecruiters] No "+ Add" button found in ${sectionLabel} section. Trying existing card.`);
-        // Maybe the card is already open? Check if there's an editable card
-      }
-
-      await sleep(600); // Wait for card render
-
-      // Find the active editing card (the one without saved/rendered data)
-      const cards = section.querySelectorAll('sf-card');
+      // Wait for the new edit card to appear and be active
       let activeCard = null;
-      for (const card of cards) {
-        if (card.hasAttribute('edit-mode') || card.getAttribute('mode') === 'edit') {
-          activeCard = card;
-          break;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await sleep(300);
+        const cards = this._findAllDeep(section, 'sf-card, spl-card, oc-experience-entry, oc-experience-edit-form, oc-education-entry, oc-education-edit-form');
+        
+        // 1. Look for explicit edit forms
+        for (const card of cards) {
+          const tag = card.tagName.toLowerCase();
+          if (tag.includes('edit-form') || tag.includes('edit-card') || card.hasAttribute('edit-mode') || card.getAttribute('mode') === 'edit') {
+            activeCard = card;
+            break;
+          }
         }
+        if (activeCard) break;
+
+        // 2. If not found, look for any card that contains inputs
+        for (const card of cards) {
+          const inputs = this._findAllDeep(card, 'input, select, textarea');
+          if (inputs.length > 0) {
+            activeCard = card;
+            break;
+          }
+        }
+        if (activeCard) break;
+
+        console.log(`[SmartRecruiters] Waiting for edit card to appear... (attempt ${attempt + 1}/10)`);
       }
-      // Fallback: find the last card (might be the newest)
-      if (!activeCard && cards.length > 0) {
-        activeCard = cards[cards.length - 1];
-      }
+
+      console.log(`[SmartRecruiters] activeCard selection:`, activeCard);
       if (!activeCard) {
-        console.log(`[SmartRecruiters] No card found in ${sectionLabel} section, skipping entry.`);
+        console.log(`[SmartRecruiters] No active edit card found in ${sectionLabel} section, skipping entry.`);
         continue;
       }
 
-      // Fill fields based on section type
       if (isExp) {
         await this._fillTextField(activeCard, ['employer', 'company', 'organization', 'org'], record.company || record.organization || '');
         await this._fillTextField(activeCard, ['job title', 'title', 'position', 'role'], record.role || record.title || '');
         await this._fillTextField(activeCard, ['location', 'city'], record.location || '');
 
-        // Handle date range
         const period = record.period || '';
         const [startDate, endDate] = this._parseDateRange(period, record.startDate, record.endDate);
         await this._fillDateField(activeCard, ['start date', 'start', 'from', 'date from', 'begin'], startDate);
 
-        // "Present" checkbox handling
         const isCurrent = this._isCurrentPosition(endDate, record.isCurrent);
         if (isCurrent) {
           await this._handlePresentCheckbox(activeCard, ['present', 'currently', 'current', 'still working', 'ongoing'], true);
-        } else if (endDate) {
-          await this._fillDateField(activeCard, ['end date', 'end', 'to', 'date to', 'until'], endDate);
+        } else {
+          await this._handlePresentCheckbox(activeCard, ['present', 'currently', 'current', 'still working', 'ongoing'], false);
+          if (endDate) {
+            await this._fillDateField(activeCard, ['end date', 'end', 'to', 'date to', 'until'], endDate);
+          }
         }
 
         await this._fillDescriptionField(activeCard, ['description', 'responsibilities', 'summary', 'details'], record.bullets || record.description || []);
       } else {
-        // Education
         await this._fillTextField(activeCard, ['school', 'institution', 'university', 'college', 'organization', 'org'], record.org || record.institution || record.school || '');
-        // Also try "name" as school name
         await this._fillTextField(activeCard, ['degree', 'qualification', 'certificate'], record.degree || record.qualification || '');
         await this._fillTextField(activeCard, ['field of study', 'major', 'discipline', 'subject', 'area of study'], record.major || record.field || '');
 
         const period = record.period || '';
-        const [startDate, endDate] = this._parseDateRange(period, record.startDate, record.endDate);
+        // FIX: Check both record.endDate and record.graduationDate
+        const [startDate, endDate] = this._parseDateRange(period, record.startDate, record.endDate || record.graduationDate);
         await this._fillDateField(activeCard, ['start date', 'start', 'from', 'begin'], startDate);
         if (endDate) {
           await this._fillDateField(activeCard, ['end date', 'end', 'to', 'until', 'graduation', 'graduated', 'year'], endDate);
@@ -409,48 +550,63 @@ PortalHandlers.register({
         await this._fillDescriptionField(activeCard, ['description', 'details', 'activities', 'notes'], record.bullets || record.description || []);
       }
 
-      await sleep(200); // Let values settle
+      await sleep(300);
 
-      // Click Save button inside this card
       const saveClicked = await this._clickButtonIn(activeCard, text =>
-        text === 'save' || text === 'save & add' || text === 'add and save' || text === 'submit' || text === 'done'
+        text.includes('save') || text.includes('submit') || text === 'done' || text === 'add'
       );
       if (!saveClicked) {
-        // Try broader search in section
         await this._clickButtonIn(section, text =>
-          text === 'save' || text === 'save & add' || text === 'add and save' || text === 'submit' || text === 'done'
+          text.includes('save') || text.includes('submit') || text === 'done' || text === 'add'
         );
       }
 
-      await sleep(800); // Wait for save/commit animation
+      // Wait for the activeCard to save and close (or disconnect, or no longer have inputs)
+      console.log(`[SmartRecruiters] Waiting for card to save and close...`);
+      let savedSuccessfully = false;
+      for (let saveWait = 0; saveWait < 15; saveWait++) {
+        await sleep(300);
+        if (!activeCard.isConnected) {
+          savedSuccessfully = true;
+          break;
+        }
+        const tag = activeCard.tagName.toLowerCase();
+        const stillEditing = tag.includes('edit-form') || tag.includes('edit-card') || 
+                             activeCard.hasAttribute('edit-mode') || activeCard.getAttribute('mode') === 'edit' ||
+                             this._findAllDeep(activeCard, 'input, select, textarea').length > 0;
+        if (!stillEditing) {
+          savedSuccessfully = true;
+          break;
+        }
+      }
+      console.log(`[SmartRecruiters] Card save wait completed. savedSuccessfully: ${savedSuccessfully}`);
+      if (!savedSuccessfully) {
+        console.log(`[SmartRecruiters] Card did not save successfully. Stopping loop to prevent overwriting.`);
+        break;
+      }
+      await sleep(500); // Small safety delay
     }
 
     console.log(`[SmartRecruiters] Finished filling ${records.length} ${sectionType} entries.`);
   },
 
-  /* Parse a date range string into start and end dates */
   _parseDateRange(period, startDate, endDate) {
     if (startDate && endDate) return [startDate, endDate];
     if (period && (period.includes('–') || period.includes('-') || period.includes('to'))) {
       const parts = period.split(/[–\-–\s]+to\s+|–/).map(p => p.trim()).filter(Boolean);
-      if (parts.length >= 2) {
-        return [parts[0], parts[1]];
-      }
+      if (parts.length >= 2) return [parts[0], parts[1]];
       if (parts.length === 1) {
-        // Could be "Present" with a start year
         if (period.toLowerCase().includes('present') || period.toLowerCase().includes('current')) {
           return [parts[0], ''];
         }
       }
     }
     if (period && !period.includes('-')) {
-      // Single date or year — treat as end date (graduation year, etc.)
       return ['', period];
     }
     return ['', ''];
   },
 
-  /* Determine if the position is current/present */
   _isCurrentPosition(endDate, isCurrent) {
     if (isCurrent === true || isCurrent === 'true') return true;
     if (!endDate) return false;
@@ -459,107 +615,6 @@ PortalHandlers.register({
   }
 });
 
-/* Simple delay helper (not exported, module-scoped) */
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// AI Fallback Fill for any custom/empty fields inside the active card
-const emptyFields = this._getEmptyFieldsInCard(activeCard);
-if (emptyFields.length > 0) {
-  console.log(`[SmartRecruiters] Found ${emptyFields.length} empty field(s) in active card. Filling via AI...`);
-  const aiFieldData = emptyFields.map(f => ({
-    id: f.id,
-    label: f.label,
-    fieldType: f.fieldType,
-    options: f.options || null
-  }));
-
-  try {
-    const result = await chrome.runtime.sendMessage({
-      type: 'FILL_FIELDS',
-      payload: { fields: aiFieldData, jobDescription: '' }
-    });
-    if (result && result.answers) {
-      for (const f of emptyFields) {
-        const ans = result.answers[f.id];
-        if (ans) {
-          console.log(`[SmartRecruiters] AI answered empty card field "${f.label}": "${ans}"`);
-
-          const isTypeahead = /typeahead|autocomplete|combobox|search/i.test(f.element.closest('sf-input, sf-select, sf-textarea')?.className || '') ||
-            /typeahead|autocomplete|combobox|search/i.test(f.element.closest('sf-input, sf-select, sf-textarea')?.tagName || '') ||
-            f.element.closest('.field, [class*="wrapper"]')?.querySelector('svg, .icon, [class*="search"]') != null;
-
-          if (isTypeahead) {
-            const isDate = /\b(date|from|to|year|calendar|month)\b/i.test(f.label.toLowerCase());
-            if (isDate) {
-              if (ans.toLowerCase() !== 'not provided') {
-                this._setInputValue(f.element, ans);
-              }
-            } else {
-              await FormFiller.pickTypeaheadOption(f.element, ans);
-            }
-          } else {
-            this._setInputValue(f.element, ans);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[SmartRecruiters] AI card field filling failed:', err);
-  }
-}
-
-await sleep(200);
-
-// Click Save button inside this card
-const saveClicked = await this._clickButtonIn(activeCard, text =>
-  text === 'save' || text === 'save & add' || text === 'add and save' || text === 'submit' || text === 'done'
-);
-if (!saveClicked) {
-  await this._clickButtonIn(section, text =>
-    text === 'save' || text === 'save & add' || text === 'add and save' || text === 'submit' || text === 'done'
-  );
-}
-
-await sleep(1000); // Wait for save/commit animation
-    }
-
-console.log(`[SmartRecruiters] Finished filling ${records.length} ${sectionType} entries.`);
-  },
-
-/* Parse a date range string into start and end dates */
-_parseDateRange(period, startDate, endDate) {
-  if (startDate && endDate) return [startDate, endDate];
-  if (period && (period.includes('–') || period.includes('-') || period.includes('to'))) {
-    const parts = period.split(/[–\-–\s]+to\s+|–/).map(p => p.trim()).filter(Boolean);
-    if (parts.length >= 2) {
-      return [parts[0], parts[1]];
-    }
-    if (parts.length === 1) {
-      // Could be "Present" with a start year
-      if (period.toLowerCase().includes('present') || period.toLowerCase().includes('current')) {
-        return [parts[0], ''];
-      }
-    }
-  }
-  if (period && !period.includes('-')) {
-    // Single date or year — treat as end date (graduation year, etc.)
-    return ['', period];
-  }
-  return ['', ''];
-},
-
-/* Determine if the position is current/present */
-_isCurrentPosition(endDate, isCurrent) {
-  if (isCurrent === true || isCurrent === 'true') return true;
-  if (!endDate) return false;
-  const end = endDate.toLowerCase();
-  return end.includes('present') || end.includes('current') || end.includes('now') || end.includes('ongoing');
-}
-});
-
-/* Simple delay helper (not exported, module-scoped) */
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
