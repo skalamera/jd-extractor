@@ -670,15 +670,6 @@ const FormFiller = {
       element.closest('[role="combobox"]') != null ||
       this.isGreenhouseRemixComboboxInput(element) ||
       (() => {
-        // SmartRecruiters specific typeahead labels mapping
-        const isSR = window.location.href.includes('smartrecruiters.com');
-        const elementLabel = element.getAttribute('aria-label') || element.placeholder || element.id || '';
-        const resolvedLabel = (typeof getFieldLabel === 'function') ? getFieldLabel(element) : '';
-        const textToTest = `${elementLabel} ${resolvedLabel} ${element.name || ''}`.toLowerCase();
-        if (isSR && /\b(title|company|office\s+location|institution|school\s+location|degree|city|country|region)\b/i.test(textToTest)) {
-          return true;
-        }
-
         const host = element.getRootNode()?.host;
         const chain = [element, host].filter(Boolean);
         for (const el of chain) {
@@ -689,6 +680,9 @@ const FormFiller = {
         }
         const container = element.closest('.field, [class*="input"], [class*="wrapper"]');
         if (container) {
+          if (container.tagName.toLowerCase().includes('spl-') && !container.querySelector('spl-select, [class*="select"]')) {
+             return false;
+          }
           if (container.querySelector('svg, .icon, [class*="icon"], [class*="search"]') || 
               /typeahead|autocomplete|combobox|search/i.test(container.className || '')) {
             return true;
@@ -728,7 +722,15 @@ const FormFiller = {
     if (!el || el.getAttribute('aria-disabled') === 'true') return false;
     const style = window.getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-    const r = el.getBoundingClientRect();
+    
+    let r = el.getBoundingClientRect();
+    if (style.display === 'contents') {
+      const firstChild = el.firstElementChild;
+      if (firstChild) {
+        r = firstChild.getBoundingClientRect();
+      }
+    }
+    
     return r.width >= 2 && r.height >= 2;
   },
 
@@ -795,6 +797,21 @@ const FormFiller = {
   },
 
   async pickTypeaheadOption(fieldInput, value) {
+    // Intercept invalid dates for calendar/date-picker fields to prevent library crashes
+    const isDateRelated = (el) => {
+      const label = String(el.getAttribute('aria-label') || el.placeholder || el.id || el.name || '').toLowerCase();
+      const type = (el.type || '').toLowerCase();
+      return type === 'date' || /\b(date|from|to|year|calendar|month)\b/i.test(label) || /pick\s+a\s+date/i.test(el.placeholder || '');
+    };
+    
+    if (isDateRelated(fieldInput)) {
+      const v = String(value).trim().toLowerCase();
+      if (v === 'not provided' || v === 'unknown' || v === 'none' || v === 'null') {
+        console.log(`[JobAutoFill] Intercepted and skipped invalid date string "${value}" for calendar field`);
+        return true; // return success safely without writing
+      }
+    }
+
     const interact = this.getComboboxInteractTarget(fieldInput);
     const logHint = fieldInput.getAttribute('aria-label') || fieldInput.placeholder || fieldInput.id ||
       interact.getAttribute('aria-label') || interact.id || interact.getAttribute('name') || '';
@@ -825,12 +842,17 @@ const FormFiller = {
     };
 
     const pickBestOption = (visible, isFlatpickr = false) => {
-      if (!visible.length) {
-        return null;
-      }
-      const notPlaceholder = (o) => !/^select\.{0,3}$/i.test(optionText(o));
-      const pool = strictShort ? visible.filter(notPlaceholder) : visible;
-      const searchIn = pool.length ? pool : visible;
+      if (!visible.length) return null;
+      
+      const validOptions = visible.filter(o => {
+        const text = optionText(o);
+        return text.length > 0 && !/^select\.{0,3}$/i.test(text);
+      });
+      
+      if (!validOptions.length) return null;
+
+      const pool = strictShort ? validOptions : validOptions;
+      const searchIn = pool;
 
       let exact = null;
       for (const option of searchIn) {
@@ -910,7 +932,7 @@ const FormFiller = {
     this.fireKey(interact, 'ArrowDown', 'ArrowDown', 40);
     
     // Step 3: Wait for Dropdown Options (State Machine Transition to DropdownRendered)
-    let { lb, visible } = await this.waitForOptions(fieldInput, 8000);
+    let { lb, visible } = await this.waitForOptions(fieldInput, 3500);
 
     console.log(`[JobAutoFill Debug] Found ${visible.length} options inside listbox:`, visible.map(o => optionText(o)));
 

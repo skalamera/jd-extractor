@@ -10,7 +10,7 @@
   // Create floating action button
   function createFAB() {
     if (window !== window.top) return; // Only show FAB in top frame
-    
+
     if (fab) return;
 
     fab = document.createElement('div');
@@ -129,7 +129,7 @@
     if (window !== window.top) {
       try {
         chrome.runtime.sendMessage({ type: 'AUTOFILL_PROGRESS', text, progress });
-      } catch (e) {}
+      } catch (e) { }
     }
   }
 
@@ -140,7 +140,7 @@
 
       const statusEl = document.getElementById('job-autofill-status');
       const failedCount = failedLabels.length;
-      
+
       let failedListHtml = '';
       if (failedCount > 0) {
         const uniqueFailed = [...new Set(failedLabels)];
@@ -197,7 +197,7 @@
     } else {
       try {
         chrome.runtime.sendMessage({ type: 'AUTOFILL_DONE', filled, failedLabels, total });
-      } catch (e) {}
+      } catch (e) { }
     }
   }
 
@@ -228,7 +228,7 @@
     } else {
       try {
         chrome.runtime.sendMessage({ type: 'AUTOFILL_ERROR', message });
-      } catch (e) {}
+      } catch (e) { }
     }
   }
 
@@ -408,8 +408,8 @@
       }
     }
 
-    const isPhone = field.element.type === 'tel' || 
-                    /\b(phone|mobile|cell|telephone)\b/i.test(field.label || '');
+    const isPhone = field.element.type === 'tel' ||
+      /\b(phone|mobile|cell|telephone)\b/i.test(field.label || '');
     if (isPhone) {
       const actualDigits = String(actual).replace(/\D/g, '');
       const expectedDigits = String(expectedValue).replace(/\D/g, '');
@@ -470,30 +470,43 @@
         return elements;
       };
 
-      // Click all "+ Add" buttons (Experience, Education rows) to expand dynamic form fields (crossing shadow boundaries)
-      const allButtons = querySelectorAllDeep('button, [role="button"], a.btn, .btn, sf-button, [class*="button"], [class*="btn"], .add-button, span, div, a');
-      console.log(`[JobAutoFill Debug] querySelectorAllDeep found ${allButtons.length} candidate elements.`);
-      const addButtons = allButtons.filter(el => {
-        const text = el.textContent.replace(/\s+/g, ' ').trim().toLowerCase();
-        if (text.length > 50) return false;
-        const isMatch = text === '+ add' || text === 'add' || text === '+add' || text === 'add more' || text === 'add another' ||
-          (text.includes('add') && (text.includes('experience') || text.includes('education') || text.includes('job') || text.includes('work') || text.includes('school') || text.includes('history') || text.includes('degree') || text.includes('employer')));
-        if (isMatch) {
-          console.log(`[JobAutoFill Debug] Matched button: tag=${el.tagName}, class=${el.className}, text="${text}"`);
-        }
-        return isMatch;
-      });
+      // Detect portal handler
+      const handler = PortalHandlers.detect() || GenericHandler;
 
-      if (addButtons.length > 0) {
-        console.log(`[JobAutoFill] Found ${addButtons.length} "+ Add" button(s). Clicking to expand form sections...`);
-        for (const btn of addButtons) {
-          try {
-            btn.click();
-          } catch (e) {
-            console.warn('[JobAutoFill] Click failed on "+ Add" button:', e);
+      // Click all "+ Add" buttons (Experience, Education rows) to expand dynamic form fields (crossing shadow boundaries)
+      // Skip if the handler has a customFill method that manages its own card expansion
+      if (!handler.customFill) {
+        const allButtons = querySelectorAllDeep('button, [role="button"], a.btn, .btn, sf-button, [class*="button"], [class*="btn"], .add-button, span, div, a');
+        console.log(`[JobAutoFill Debug] querySelectorAllDeep found ${allButtons.length} candidate elements.`);
+        const addButtons = allButtons.filter(el => {
+          const text = el.textContent.replace(/\s+/g, ' ').trim().toLowerCase();
+          if (text.length > 50) return false;
+          const isMatch = text === '+ add' || text === 'add' || text === '+add' || text === 'add more' || text === 'add another' ||
+            (text.includes('add') && (text.includes('experience') || text.includes('education') || text.includes('job') || text.includes('work') || text.includes('school') || text.includes('history') || text.includes('degree') || text.includes('employer')));
+          if (isMatch) {
+            console.log(`[JobAutoFill Debug] Matched button: tag=${el.tagName}, class=${el.className}, text="${text}"`);
           }
+          return isMatch;
+        });
+
+        if (addButtons.length > 0) {
+          console.log(`[JobAutoFill] Found ${addButtons.length} "+ Add" button(s). Clicking to expand form sections...`);
+          for (const btn of addButtons) {
+            try {
+              btn.click();
+            } catch (e) {
+              console.warn('[JobAutoFill] Click failed on "+ Add" button:', e);
+            }
+          }
+          await FormFiller.delay(350); // wait for animations to complete
         }
-        await FormFiller.delay(350); // wait for animations to complete
+      }
+
+      // If handler has a custom multi-card/complex fill flow, invoke it first
+      // (e.g. SmartRecruiters experience/education sections with Shadow DOM cards)
+      if (handler.customFill) {
+        updateStatus('Filling experience and education details...', 10);
+        await handler.customFill(profileData);
       }
 
       updateStatus('Scanning form fields...', 15);
@@ -506,7 +519,6 @@
       let totalFilled = 0;
 
       for (let pass = 1; pass <= MAX_PASSES; pass++) {
-        const handler = PortalHandlers.detect() || GenericHandler;
         const currentPassFields = handler.getFields();
 
         // Filter out fields we already processed in a previous pass
@@ -576,7 +588,7 @@
         const dedupedDirectUnique = dedupeDirectByLabelAndPurpose(dedupedDirect);
         directFields.length = 0;
         directFields.push(...dedupedDirectUnique);
-        
+
         const dedupedAi = aiFields.filter(f => {
           if ((f.fieldType === 'radio' || f.fieldType === 'checkbox') && !f.allElements) {
             const parentGroup = groupedChoiceFields.find(g =>
@@ -602,9 +614,9 @@
               const f = resolveFieldElement(field);
               let success;
               if (resumeFile.generateFromText) {
-                 success = FormFiller.attachGeneratedTextAsPdf(f.element, resumeFile.text, resumeFile.fileName);
+                success = FormFiller.attachGeneratedTextAsPdf(f.element, resumeFile.text, resumeFile.fileName);
               } else {
-                 success = await FormFiller.attachFile(f.element, resumeFile.data, resumeFile.fileName);
+                success = await FormFiller.attachFile(f.element, resumeFile.data, resumeFile.fileName);
               }
               if (success) {
                 attachedResumeOnce = true;
@@ -634,7 +646,7 @@
 
         for (const field of directFields) {
           const resolved = resolveFieldElement(field);
-          
+
           if (skipRequested) {
             skipRequested = false;
             console.log(`[JobAutoFill] Skipped direct field: ${resolved.label}`);
@@ -651,9 +663,9 @@
             if (resolved.fieldType === 'aria-choice-group') await FormFiller.delay(120);
             const verification = verifyFilledField(resolved, value);
             const applied = success && verification.ok;
-            
+
             const highlightTarget = FormFiller.getComboboxInteractTarget(resolved.element) || resolved.element;
-            
+
             if (applied) {
               totalFilled++;
               highlightTarget.style.outline = '2px solid #34a853';
@@ -688,7 +700,7 @@
 
         if (aiQueue.length > 0) {
           updateStatus(`Pass ${pass}: AI answering ${aiQueue.length} questions...`, pass === 1 ? 55 : 90);
-          
+
           const aiFieldData = aiQueue.map(f => ({
             id: f.id,
             label: f.label,
@@ -721,13 +733,13 @@
 
             const value = aiAnswers[resolved.id];
             const highlightTarget = FormFiller.getComboboxInteractTarget(resolved.element) || resolved.element;
-            
+
             if (value) {
               const success = await fillDetectedField(resolved, value);
               if (resolved.fieldType === 'aria-choice-group') await FormFiller.delay(120);
               const verification = verifyFilledField(resolved, value);
               const applied = success && verification.ok;
-              
+
               if (applied) {
                 totalFilled++;
                 highlightTarget.style.outline = '2px solid #34a853';
@@ -770,7 +782,7 @@
               } else {
                 success = await FormFiller.fillField(resolved.element, clResult.coverLetter, resolved.fieldType);
               }
-              
+
               const highlightTarget = FormFiller.getComboboxInteractTarget(resolved.element) || resolved.element;
               if (success) {
                 totalFilled++;
@@ -791,33 +803,36 @@
               const text = el.textContent.trim().toLowerCase();
               return text === 'save' || text === 'add and save';
             });
-          
+
           if (saveButtons.length > 0) {
             console.log(`[JobAutoFill] Found ${saveButtons.length} "Save" button(s) at end of Pass 1. Clicking to save sections...`);
             for (const btn of saveButtons) {
               try {
                 btn.click();
-              } catch (e) {}
+              } catch (e) { }
             }
             await FormFiller.delay(1000); // wait for save API requests and animations to settle!
-            
+
             // Now click "+ Add" again to expand the next card for Pass 2!
-            const addButtonsPass2 = querySelectorAllDeep('button, [role="button"], a.btn, .btn, sf-button, [class*="button"], [class*="btn"], .add-button')
-              .filter(el => {
-                const text = el.textContent.replace(/\s+/g, ' ').trim().toLowerCase();
-                if (text === '+ add' || text === 'add' || text === '+add' || text === 'add more' || text === 'add another') return true;
-                if (text.includes('add') && (text.includes('experience') || text.includes('education') || text.includes('job') || text.includes('work') || text.includes('school') || text.includes('history') || text.includes('degree') || text.includes('employer'))) return true;
-                return false;
-              });
-              
-            if (addButtonsPass2.length > 0) {
-              console.log(`[JobAutoFill] Clicking "+ Add" button(s) again to expand subsequent cards for Pass 2...`);
-              for (const btn of addButtonsPass2) {
-                try {
-                  btn.click();
-                } catch (e) {}
+            // Skip if handler manages its own card expansion via customFill
+            if (!handler.customFill) {
+              const addButtonsPass2 = querySelectorAllDeep('button, [role="button"], a.btn, .btn, sf-button, [class*="button"], [class*="btn"], .add-button')
+                .filter(el => {
+                  const text = el.textContent.replace(/\s+/g, ' ').trim().toLowerCase();
+                  if (text === '+ add' || text === 'add' || text === '+add' || text === 'add more' || text === 'add another') return true;
+                  if (text.includes('add') && (text.includes('experience') || text.includes('education') || text.includes('job') || text.includes('work') || text.includes('school') || text.includes('history') || text.includes('degree') || text.includes('employer'))) return true;
+                  return false;
+                });
+
+              if (addButtonsPass2.length > 0) {
+                console.log(`[JobAutoFill] Clicking "+ Add" button(s) again to expand subsequent cards for Pass 2...`);
+                for (const btn of addButtonsPass2) {
+                  try {
+                    btn.click();
+                  } catch (e) { }
+                }
+                await FormFiller.delay(500); // wait for card to open
               }
-              await FormFiller.delay(500); // wait for card to open
             }
           }
           await FormFiller.delay(600);
@@ -865,7 +880,7 @@
       for (const node of mutation.addedNodes) {
         if (node.nodeType === Node.ELEMENT_NODE) {
           if (node.querySelector?.('input, textarea, select, [contenteditable]') ||
-              node.matches?.('input, textarea, select')) {
+            node.matches?.('input, textarea, select')) {
             hasNewFields = true;
             break;
           }
@@ -892,7 +907,7 @@
     if (isJobSite) {
       createFAB();
       mutationObserver.observe(document.body, { childList: true, subtree: true });
-      
+
       // Periodically check for LinkedIn job action containers to inject inline button
       if (url.includes('linkedin.com')) {
         setInterval(injectLinkedInExtractButton, 1000);
@@ -904,7 +919,7 @@
     // Look for the "Save" button in the job details header
     const saveBtn = document.querySelector('.jobs-save-button');
     if (!saveBtn) return;
-    
+
     // The parent container of the Apply/Save buttons
     const container = saveBtn.parentElement;
     if (!container) return;
@@ -933,9 +948,9 @@
         transition: opacity 0.2s;
         box-sizing: border-box;
       `;
-      
+
       btn.innerHTML = `Clyde`;
-        
+
       btn.addEventListener('mouseenter', () => btn.style.opacity = '0.88');
       btn.addEventListener('mouseleave', () => btn.style.opacity = '1');
 
@@ -946,12 +961,12 @@
 
         btn.innerText = 'Extracting...';
         btn.disabled = true;
-        
+
         let textToExtract = document.body.innerText;
         const selectors = [
           '.jobs-description__content',
           '.jobs-search__job-details--container',
-          '.job-description', 
+          '.job-description',
           '#job-description'
         ];
         for (const sel of selectors) {
@@ -985,7 +1000,7 @@
 
       container.appendChild(btn);
     }
-    
+
     // Always update state if it's not currently extracting
     if (!btn.innerText.includes('Extracting')) {
       updateButtonState(btn);
@@ -999,14 +1014,14 @@
 
   function updateButtonState(btn) {
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id || !chrome.storage || !chrome.storage.local) return;
-    
+
     try {
       chrome.storage.local.get({ clips: [] }, (data) => {
         if (chrome.runtime.lastError) return; // fail silently if context invalidated during async call
-        
+
         const currentUrl = window.location.href;
         const currentJobId = getJobIdFromUrl(currentUrl);
-        
+
         const isExtracted = data.clips.some(clip => {
           if (!clip.url) return false;
           const clipJobId = getJobIdFromUrl(clip.url);
@@ -1041,7 +1056,7 @@
     try {
       chrome.storage.onChanged.addListener((changes, namespace) => {
         if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) return;
-        
+
         if (namespace === 'local' && changes.clips) {
           const btn = document.getElementById('jayobee-inline-extract-btn');
           if (btn) updateButtonState(btn);

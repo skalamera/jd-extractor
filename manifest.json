@@ -52,6 +52,7 @@
         "content/portal-handlers/lever.js",
         "content/portal-handlers/workday.js",
         "content/portal-handlers/linkedin.js",
+        "content/portal-handlers/smartrecruiters.js",
         "content/portal-handlers/icims.js",
         "content/portal-handlers/taleo.js",
         "content/portal-handlers/generic.js",
