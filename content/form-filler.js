@@ -121,97 +121,24 @@ const FormFiller = {
     return outerCombo || fieldInput;
   },
 
-  getListboxElForField(fieldInput) {
-    if (!fieldInput) return null;
-    const interact = this.getComboboxInteractTarget(fieldInput);
-    const chain = [
-      interact?.closest?.('[role="combobox"]'),
-      interact,
-      fieldInput?.closest?.('[role="combobox"]'),
-      fieldInput
-    ].filter(Boolean);
-
-    const isValidListbox = (el) => {
-      if (!el) return false;
-      if (el.contains(interact) || el.contains(fieldInput)) return false;
-      const tag = el.tagName?.toLowerCase();
-      if (['input', 'textarea', 'button'].includes(tag)) return false;
-      
-      const cn = String(el.className || '').toLowerCase();
-      const id = String(el.id || '').toLowerCase();
-      const role = String(el.getAttribute('role') || '').toLowerCase();
-      // Exclude validation summaries, errors, alerts, warnings, and messages
-      const isValidation = /\b(validation|error|alert|warning|tooltip|feedback|message)\b/i.test(cn + ' ' + id);
-      if (isValidation && role !== 'listbox') {
-        return false;
-      }
-      return true;
-    };
-
-    const seen = new Set();
-    for (const node of chain) {
-      if (seen.has(node)) continue;
-      seen.add(node);
-      const cid = node.getAttribute?.('aria-controls') || node.getAttribute?.('aria-owns') || node.getAttribute?.('list');
-      if (cid) {
-        try {
-          const lb = this.querySelectorDeep(`#${CSS.escape(cid)}`);
-          if (lb && isValidListbox(lb)) return lb;
-        } catch {}
-      }
+  getListboxElForField(input) {
+    if (!input) return null;
+    // Locate the aria-controls listbox
+    const controls = input.getAttribute('aria-controls');
+    if (controls) {
+      const lb = this.querySelectorDeep(`#${CSS.escape(controls)}`);
+      if (lb) return lb;
     }
-
-    // Fallback: search the parent shadow root (not the whole document) for any listbox-like element
-    const rootNode = fieldInput.getRootNode();
-    if (rootNode && rootNode !== document && typeof rootNode.querySelector === 'function') {
-      const fb = rootNode.querySelector('[role="listbox"], ul, .results, [class*="results"], [class*="listbox"], [class*="dropdown"], [class*="list"]');
-      if (fb && isValidListbox(fb)) return fb;
+    // Search parent hierarchy
+    let current = input;
+    for (let i = 0; i < 6 && current; i++) {
+      const listbox = this.querySelectorDeep('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"]', current);
+      if (listbox && this.isVisibleOption(listbox)) return listbox;
+      current = current.parentNode || current.host;
     }
-    const container = fieldInput.closest?.('.field, [class*="group"], [class*="input"], [class*="wrapper"]');
-    if (container) {
-      const fb = this.querySelectorDeep('[role="listbox"], ul, .results, [class*="results"], [class*="listbox"], [class*="dropdown"], [class*="list"]', container);
-      if (fb && isValidListbox(fb)) return fb;
-    }
-
-    // Fallback 2: Search globally (crossing shadow roots) for visible listbox-like elements
-    try {
-      const visibleListboxes = this.querySelectorAllDeep(
-        '[role="listbox"], ul, .results, sf-typeahead-items, sf-autocomplete-items, ' +
-        '[class*="results"], [class*="listbox"], [class*="dropdown"], [class*="menu"], ' +
-        '[class*="autocomplete-panel"], [class*="suggestions-panel"], [class*="dropdown-panel"], ' +
-        '[class*="overlay"], [class*="typeahead"], [class*="autocomplete"], [class*="suggestions"], ' +
-        '[class*="popover"], [class*="selection"], [class*="options"], ' +
-        '[class*="spl-listbox"], [class*="spl-dropdown"], [class*="spl-menu"], [class*="spl-select"], ' +
-        '[class*="spl-typeahead"], [class*="spl-autocomplete"], [class*="spl-option"], [class*="spl-popup"], [class*="spl-overlay"]'
-      ).filter(el => {
-        if (!isValidListbox(el)) return false;
-        const style = window.getComputedStyle(el);
-        return style.display !== 'none' && style.visibility !== 'hidden' && el.getBoundingClientRect().height > 10;
-      });
-
-      // Strict constraint: If there is exactly one visible listbox on the page, use it
-      if (visibleListboxes.length === 1) {
-        return visibleListboxes[0];
-      }
-
-      // If there are multiple, resolve by high-confidence proximity (tighter 120px threshold)
-      if (visibleListboxes.length > 1) {
-        const isPositionedNear = (inputEl, candidateEl) => {
-          const r1 = inputEl.getBoundingClientRect();
-          const r2 = candidateEl.getBoundingClientRect();
-          if (r2.width === 0 || r2.height === 0) return false;
-          const vertDist = Math.min(Math.abs(r2.top - r1.bottom), Math.abs(r2.bottom - r1.top));
-          const horizDist = Math.max(0, r1.left - r2.right, r2.left - r1.right);
-          return vertDist <= 120 && horizDist <= 120;
-        };
-        const nearby = visibleListboxes.filter(el => isPositionedNear(interact, el));
-        if (nearby.length === 1) {
-          return nearby[0];
-        }
-      }
-    } catch {}
-
-    return null;
+    // Search globally in document
+    const listboxes = this.querySelectorAllDeep('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"]');
+    return listboxes.find(lb => this.isVisibleOption(lb)) || null;
   },
 
   normalizeProfileChoice(value) {
@@ -719,7 +646,7 @@ const FormFiller = {
   },
 
   isVisibleOption(el) {
-    if (!el || el.getAttribute('aria-disabled') === 'true') return false;
+    if (!el) return false;
     const style = window.getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
     
@@ -731,72 +658,56 @@ const FormFiller = {
       }
     }
     
-    return r.width >= 2 && r.height >= 2 && r.top > 0;
+    return r.width >= 2 && r.height >= 2;
   },
 
   async fireKey(element, key, code, keyCode) {
     const createEvent = (type) => {
-      const ev = new KeyboardEvent(type, {
-        key,
-        code,
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-        view: window
-      });
-      Object.defineProperty(ev, 'keyCode', { value: keyCode, configurable: true });
-      Object.defineProperty(ev, 'which', { value: keyCode, configurable: true });
+      const ev = new KeyboardEvent(type, { key, code, bubbles: true, cancelable: true, composed: true, view: window });
+      Object.defineProperty(ev, 'keyCode', { value: keyCode });
+      Object.defineProperty(ev, 'which', { value: keyCode });
       return ev;
     };
     element.dispatchEvent(createEvent('keydown'));
-    await this.delay(15);
+    await this.delay(10);
     element.dispatchEvent(createEvent('keyup'));
   },
 
-  collectListboxOptions(listbox) {
-    if (!listbox) return [];
-    if (listbox.classList?.contains('flatpickr-calendar') || /flatpickr/i.test(listbox.className || '')) {
-      const calendarOpts = this.querySelectorAllDeep('.flatpickr-monthSelect-month, .flatpickr-day, .flatpickr-month, span.flatpickr-monthSelect-month', listbox);
-      if (calendarOpts.length > 0) {
-        return [...new Set(calendarOpts)].filter(o => this.isVisibleOption(o));
-      }
+  getListboxElForField(input) {
+    if (!input) return null;
+    // Locate the aria-controls listbox
+    const controls = input.getAttribute('aria-controls');
+    if (controls) {
+      const lb = this.querySelectorDeep(`#${CSS.escape(controls)}`);
+      if (lb) return lb;
     }
-    let opts = this.querySelectorAllDeep('[role="option"], sf-typeahead-item, sf-autocomplete-item', listbox);
-    if (opts.length === 0) {
-      opts = this.querySelectorAllDeep('li, a, [class*="option"], [class*="item"], [class*="result"], [class*="choice"], [class*="select"]', listbox);
+    // Search parent hierarchy
+    let current = input;
+    for (let i = 0; i < 6 && current; i++) {
+      const listbox = this.querySelectorDeep('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"]', current);
+      if (listbox && this.isVisibleOption(listbox)) return listbox;
+      current = current.parentNode || current.host;
     }
-    return [...new Set(opts)].filter(o => this.isVisibleOption(o));
+    // Search globally in document
+    const listboxes = this.querySelectorAllDeep('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"]');
+    return listboxes.find(lb => this.isVisibleOption(lb)) || null;
   },
 
-  async waitForDropdownToClose(lb, timeoutMs = 2000) {
-    if (!lb) return;
+  async waitForOptions(input, timeoutMs = 2500) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      if (!document.body.contains(lb)) return;
-      const style = window.getComputedStyle(lb);
-      if (style.display === 'none' || style.visibility === 'hidden') return;
-      const opts = this.collectListboxOptions(lb);
-      if (opts.length === 0) return;
-      await this.delay(50);
-    }
-  },
-
-  async waitForOptions(fieldInput, timeoutMs = 4000) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const lb = this.getListboxElForField(fieldInput);
+      const lb = this.getListboxElForField(input);
       if (lb) {
-        const visible = this.collectListboxOptions(lb);
-        if (visible.length > 0) {
-          return { lb, visible };
-        }
+        const opts = this.querySelectorAllDeep('[role="option"], li, a, [class*="option"]', lb)
+          .filter(o => this.isVisibleOption(o));
+        if (opts.length > 0) return { lb, visible: opts };
       }
       await this.delay(100);
     }
     return { lb: null, visible: [] };
   },
 
-  async pickTypeaheadOption(fieldInput, value) {
+  async pickTypeaheadOption(input, value) {
     // Intercept invalid dates for calendar/date-picker fields to prevent library crashes
     const isDateRelated = (el) => {
       const label = String(el.getAttribute('aria-label') || el.placeholder || el.id || el.name || '').toLowerCase();
@@ -804,7 +715,7 @@ const FormFiller = {
       return type === 'date' || /\b(date|from|to|year|calendar|month)\b/i.test(label) || /pick\s+a\s+date/i.test(el.placeholder || '');
     };
     
-    if (isDateRelated(fieldInput)) {
+    if (isDateRelated(input)) {
       const v = String(value).trim().toLowerCase();
       if (v === 'not provided' || v === 'unknown' || v === 'none' || v === 'null') {
         console.log(`[JobAutoFill] Intercepted and skipped invalid date string "${value}" for calendar field`);
@@ -812,296 +723,59 @@ const FormFiller = {
       }
     }
 
-    const interact = this.getComboboxInteractTarget(fieldInput);
-    const logHint = fieldInput.getAttribute('aria-label') || fieldInput.placeholder || fieldInput.id ||
-      interact.getAttribute('aria-label') || interact.id || interact.getAttribute('name') || '';
-    console.log(`[JobAutoFill Debug] pickTypeaheadOption started for "${logHint}" value="${value}"`);
+    const interact = this.getComboboxInteractTarget(input);
     const valueStr = String(value).trim();
     const valueLower = valueStr.toLowerCase();
-    const strictShort = /^(yes|no)$/i.test(valueStr);
 
-    const cleanCompareText = (str) => {
-      return String(str || '')
-        .toLowerCase()
-        .replace(/[’'"]/g, '')
-        .replace(/[^a-z0-9]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    };
+    // 1. Type the search string
+    await this.typeValueIncrementally(input, valueStr);
+    await this.delay(150);
 
-    const targetClean = cleanCompareText(valueStr);
+    // 2. Open dropdown using keyboard
+    await this.fireKey(interact, 'ArrowDown', 'ArrowDown', 40);
 
-    let typeValue = valueStr;
-    if (/[’'"]/.test(typeValue)) {
-      typeValue = typeValue.replace(/[’'"]/g, '');
+    // 3. Wait for options to render
+    const { lb, visible } = await this.waitForOptions(interact);
+    if (!visible.length) {
+      console.log("[Clyde Apply] No dropdown options rendered for:", valueStr);
+      return false;
     }
 
-    const optionText = (option) => {
-      const raw = option.getAttribute('aria-label') || 
-                  option.textContent || 
-                  (option.shadowRoot ? option.shadowRoot.textContent : '') || 
-                  '';
-      return raw.replace(/\s+/g, ' ').trim().toLowerCase();
-    };
+    // 4. Find the best match option
+    const exactMatch = visible.find(opt => {
+      const txt = opt.textContent?.trim().toLowerCase();
+      return txt === valueLower || this.normalizeChoiceText(txt) === this.normalizeChoiceText(valueStr);
+    });
 
-    const pickBestOption = (visible, isFlatpickr = false) => {
-      if (!visible.length) return null;
-      
-      const validOptions = visible.filter(o => {
-        const text = optionText(o);
-        return text.length > 0 && !/^select\.{0,3}$/i.test(text);
-      });
-      
-      if (!validOptions.length) return null;
+    const partialMatch = exactMatch || visible.find(opt => {
+      const txt = opt.textContent?.trim().toLowerCase();
+      return txt.includes(valueLower) || valueLower.includes(txt);
+    });
 
-      const pool = strictShort ? validOptions : validOptions;
-      const searchIn = pool;
+    const target = partialMatch || visible[0];
 
-      let exact = null;
-      for (const option of searchIn) {
-        const text = optionText(option);
-        if (text === valueLower || cleanCompareText(text) === targetClean) {
-          exact = option;
-          break;
-        }
-      }
-      if (exact) {
-        console.log(`[JobAutoFill Debug] pickBestOption matched EXACT option: "${optionText(exact)}"`);
-        return exact;
-      }
-      if (strictShort) return null;
-
-      let partial = null;
-      for (const option of visible) {
-        const text = optionText(option);
-        const textClean = cleanCompareText(text);
-        if (text.includes(valueLower) || 
-            textClean.includes(targetClean) || 
-            (text && valueLower.includes(text.split(',')[0]?.trim())) ||
-            (textClean && targetClean.includes(textClean.split(' ')[0]?.trim()))) {
-          partial = option;
-          break;
-        }
-      }
-      if (partial) {
-        console.log(`[JobAutoFill Debug] pickBestOption matched PARTIAL option: "${optionText(partial)}"`);
-        return partial;
-      }
-
-      if (isFlatpickr) {
-        return null;
-      }
-
-      const highlighted = visible.find(o => o.getAttribute('aria-selected') === 'true') ||
-        visible.find(o => /highlight|focus|active/i.test(String(o.className || '')));
-      if (highlighted) {
-        console.log(`[JobAutoFill Debug] pickBestOption fallback to HIGHLIGHTED option: "${optionText(highlighted)}"`);
-        return highlighted;
-      }
-      
-      console.log(`[JobAutoFill Debug] pickBestOption fallback to FIRST option: "${optionText(visible[0])}"`);
-      return visible[0];
-    };
-
-    const triggerReactChange = (el) => {
-      const reactPropsKey = Object.keys(el).find(key => key.startsWith('__reactProps$') || key.startsWith('__reactEventHandlers$'));
-      if (reactPropsKey && el[reactPropsKey] && el[reactPropsKey].onChange) {
-        try {
-          el[reactPropsKey].onChange({ target: el, currentTarget: el });
-        } catch (e) {}
-      }
-    };
-
-    const isWritableInput = (el) => {
-      if (!el) return false;
-      const tag = el.tagName?.toLowerCase();
-      return tag === 'input' || tag === 'textarea' || el.getAttribute('contenteditable') === 'true';
-    };
-
-    const dispatchEvents = (el, val) => {
-      if (!el) return;
-      el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
-      triggerReactChange(el);
-    };
-
-    const hasInteractInput = interact && interact !== fieldInput && isWritableInput(interact);
-
-    // Step 1: Incremental Focus-Secured Typing
-    await this.typeValueIncrementally(fieldInput, typeValue);
-    await this.delay(100);
-
-    // Step 2: Trigger Dropdown Opening (Via ArrowDown Key)
-    this.fireKey(interact, 'ArrowDown', 'ArrowDown', 40);
-    
-    // Step 3: Wait for Dropdown Options (State Machine Transition to DropdownRendered)
-    let { lb, visible } = await this.waitForOptions(fieldInput, 3500);
-
-    console.log(`[JobAutoFill Debug] Found ${visible.length} options inside listbox:`, visible.map(o => optionText(o)));
-
-    const isFp = !!(lb && (lb.classList?.contains('flatpickr-calendar') || /flatpickr/i.test(lb.className || '')));
-    const best = pickBestOption(visible, isFp);
-
-    const commitBestOptionViaKeyboard = async (keyTarget, visibleOptions, bestOption) => {
-      const idx = visibleOptions.indexOf(bestOption);
-      if (idx < 0) return false;
-      
-      keyTarget.focus();
-      await this.delay(100);
-      
-      console.log(`[JobAutoFill Debug] Navigating to option at index ${idx} via ArrowDown...`);
-      for (let i = 0; i <= idx; i++) {
-        this.fireKey(keyTarget, 'ArrowDown', 'ArrowDown', 40);
-        await this.delay(100);
-      }
-      
-      console.log(`[JobAutoFill Debug] Pressing Enter to select option...`);
-      this.fireKey(keyTarget, 'Enter', 'Enter', 13);
-      await this.delay(300);
-      return true;
-    };
-
-    if (best) {
-      console.log(`[JobAutoFill Debug] Selected best option: "${optionText(best)}"`);
-      
-      // Step 4: Keyboard Selection Commit (Highly framework-compatible)
-      let committed = false;
+    if (target) {
+      // framework-safe pointer events + click
+      target.scrollIntoView({ block: 'nearest' });
       try {
-        committed = await commitBestOptionViaKeyboard(interact, visible, best);
+        target.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+        target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+        target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        target.click();
+        await this.delay(150);
       } catch (e) {
-        console.warn('[JobAutoFill] Keyboard selection commit failed:', e);
+        target.click();
       }
-
-      // Verify if value is now successfully populated
-      const ev = this.getEffectiveInputValue(fieldInput).toLowerCase().replace(/\s+/g, ' ').trim();
-      const hasValue = ev && !/^select\.{0,3}$/i.test(ev);
-
-      // Fallback: Dispatch pointer/hover & mouse click sequence
-      if (!committed || !hasValue) {
-        console.log('[JobAutoFill Debug] Keyboard commit did not populate value. Falling back to Mouse Click...');
-        try {
-          best.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-          best.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, cancelable: true }));
-          best.dispatchEvent(new PointerEvent('pointerenter', { bubbles: false, cancelable: false }));
-          best.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
-          best.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false, cancelable: false }));
-          best.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
-          best.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-          best.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-          best.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true }));
-          best.click();
-          await this.delay(250);
-        } catch (e) {
-          console.warn('[JobAutoFill] Mouse click selection failed:', e);
-        }
-      }
-
-      dispatchEvents(fieldInput, fieldInput.value);
-      try {
-        interact.blur();
-        if (fieldInput !== interact) fieldInput.blur();
-      } catch (e) {}
       
-      if (hasInteractInput) {
-        dispatchEvents(interact, interact.value);
+      // Dispatch events on input
+      input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+      if (input !== interact) {
+        interact.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        interact.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
       }
-
-      // Step 5: Wait for Dropdown Closure to prevent sibling cross-contamination
-      await this.waitForDropdownToClose(lb);
-      await this.delay(50);
       return true;
-    }
-
-    // Fallback: Try document-wide option search
-    const searchRoots = [];
-    const pac = document.querySelector('.pac-container');
-    if (pac) searchRoots.push(pac);
-    const formScope = fieldInput.closest('form, #application_form, [id*="application"]');
-    if (formScope) searchRoots.push(formScope);
-    const questionScope = fieldInput.closest('[class*="question"], .application-question, [data-question-id]');
-    if (questionScope) searchRoots.push(questionScope);
-    searchRoots.push(document.body);
-
-    const tryPickFromRoot = (root) => {
-      if (!root) return null;
-      const candidates = [];
-      const sel = [
-        '[role="option"]',
-        '[role="listbox"] li',
-        '[class*="menu"] [role="option"]',
-        '[class*="Menu"] [role="option"]',
-        '.pac-item',
-        '.MuiAutocomplete-option',
-        '[class*="Autocomplete-option"]',
-        '[class*="LocationSuggestion"]',
-        'li[role="menuitem"]'
-      ].join(', ');
-      this.querySelectorAllDeep(sel, root).forEach(o => candidates.push(o));
-      const vis = [...new Set(candidates)].filter(o => this.isVisibleOption(o));
-      const fp = !!(root && (root.classList?.contains('flatpickr-calendar') || /flatpickr/i.test(root.className || '')));
-      return pickBestOption(vis, fp);
-    };
-
-    for (const root of searchRoots) {
-      const fb = tryPickFromRoot(root);
-      if (fb) {
-        fb.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-        try {
-          fb.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, cancelable: true }));
-          fb.dispatchEvent(new PointerEvent('pointerenter', { bubbles: false, cancelable: false }));
-          fb.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
-          fb.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false, cancelable: false }));
-          fb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
-          fb.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-          fb.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-          fb.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true }));
-        } catch (e) {}
-        fb.click();
-        await this.delay(250);
-        
-        dispatchEvents(fieldInput, fieldInput.value);
-        try {
-          interact.blur();
-          if (fieldInput !== interact) fieldInput.blur();
-        } catch (e) {}
-        
-        if (hasInteractInput) {
-          dispatchEvents(interact, interact.value);
-        }
-        const fbParentListbox = fb.closest('[role="listbox"], ul, [class*="listbox"], [class*="dropdown"], [class*="menu"]');
-        if (fbParentListbox) {
-          await this.waitForDropdownToClose(fbParentListbox);
-        }
-        return true;
-      }
-    }
-
-    // Step 6: Blind Keyboard Commit Fallback
-    console.log(`[JobAutoFill Debug] Blind keyboard commit fallback on "${logHint}"`);
-    try {
-      interact.focus();
-      await this.delay(100);
-      this.fireKey(interact, 'ArrowDown', 'ArrowDown', 40);
-      await this.delay(150);
-      this.fireKey(interact, 'Enter', 'Enter', 13);
-      await this.delay(250);
-      
-      // Check if value was committed
-      const ev = this.getEffectiveInputValue(fieldInput).toLowerCase().replace(/\s+/g, ' ').trim();
-      if (ev && !/^select\.{0,3}$/i.test(ev)) {
-        console.log(`[JobAutoFill Debug] Blind keyboard commit succeeded for "${logHint}" (value: "${ev}")`);
-        try {
-          interact.blur();
-          if (fieldInput !== interact) fieldInput.blur();
-        } catch (e) {}
-        const activeLb = this.getListboxElForField(fieldInput);
-        if (activeLb) {
-          await this.waitForDropdownToClose(activeLb);
-        }
-        return true;
-      }
-    } catch (e) {
-      console.warn(`[JobAutoFill] Blind keyboard commit failed for "${logHint}":`, e);
     }
 
     return false;
