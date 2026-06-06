@@ -36,7 +36,8 @@
     {
       "resources": [
         "anti-ai-writing-style.md",
-        "lib/clyde-client.js"
+        "lib/clyde-client.js",
+        "content/portal-handlers/smartrecruiters-inject.js"
       ],
       "matches": ["<all_urls>"]
     }

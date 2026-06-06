@@ -4,6 +4,10 @@ const FormFiller = {
   FILL_DELAY: 150, // ms between fills to avoid race conditions
 
   querySelectorDeep(selector, root = document) {
+    if (root.shadowRoot) {
+      const found = this.querySelectorDeep(selector, root.shadowRoot);
+      if (found) return found;
+    }
     const el = root.querySelector(selector);
     if (el) return el;
     const children = root.querySelectorAll('*');
@@ -17,7 +21,11 @@ const FormFiller = {
   },
 
   querySelectorAllDeep(selector, root = document) {
-    const elements = Array.from(root.querySelectorAll(selector));
+    const elements = [];
+    if (root.shadowRoot) {
+      elements.push(...this.querySelectorAllDeep(selector, root.shadowRoot));
+    }
+    elements.push(...Array.from(root.querySelectorAll(selector)));
     const children = root.querySelectorAll('*');
     for (const child of children) {
       if (child.shadowRoot) {
@@ -319,13 +327,13 @@ const FormFiller = {
     return false;
   },
 
-  async fillField(element, value, fieldType) {
+  async fillField(element, value, fieldType, purpose = '', label = '') {
     if (!element || value === undefined || value === null || value === '') return false;
 
     switch (fieldType) {
       case 'text':
       case 'textarea':
-        return this.fillTextInput(element, value);
+        return this.fillTextInput(element, value, purpose, label);
       case 'select':
         return this.fillSelect(element, value);
       case 'radio':
@@ -341,12 +349,14 @@ const FormFiller = {
       case 'file':
         return false; // handled separately
       default:
-        return this.fillTextInput(element, value);
+        return this.fillTextInput(element, value, purpose, label);
     }
   },
 
-  fieldHintsLookLikeLocation(element) {
+  fieldHintsLookLikeLocation(element, purpose = '', label = '') {
+    if (purpose === 'address.city' || purpose === 'address.state' || purpose === 'address.country') return true;
     const blob = [
+      label,
       element.getAttribute('placeholder'),
       element.getAttribute('aria-label'),
       element.id,
@@ -361,6 +371,17 @@ const FormFiller = {
       })()
     ].filter(Boolean).join(' ');
     return /\b(location|city|town|state|country|address|zip|postal)\b/i.test(blob);
+  },
+
+  isDateRelated(el, label = '') {
+    const l = String(el.getAttribute('aria-label') || el.placeholder || el.id || el.name || label || '').toLowerCase();
+    const type = (el.type || '').toLowerCase();
+    return type === 'date' || 
+           /\b(date|from|to|year|calendar|month)\b/i.test(l) || 
+           /pick\s+a\s+date/i.test(el.placeholder || '') ||
+           el.classList.contains('flatpickr-input') ||
+           el.hasAttribute('data-input') ||
+           el.closest('sf-date-picker, spl-date-picker') != null;
   },
 
   async typeValueIncrementally(element, valueStr) {
@@ -468,13 +489,14 @@ const FormFiller = {
     }
   },
 
-  async fillTextInput(element, value) {
+  async fillTextInput(element, value, purpose = '', label = '') {
     const interact = this.getComboboxInteractTarget(element);
     
     // Phone number cleaning & formatting
-    const isPhone = element.type === 'tel' || 
+    const isPhone = purpose === 'phone' ||
+                    element.type === 'tel' || 
                     interact.type === 'tel' || 
-                    /\b(phone|mobile|cell|telephone)\b/i.test(element.id + ' ' + element.name + ' ' + (element.getAttribute('placeholder') || '') + ' ' + interact.id + ' ' + interact.name);
+                    /\b(phone|mobile|cell|telephone)\b/i.test(label + ' ' + element.id + ' ' + element.name + ' ' + (element.getAttribute('placeholder') || '') + ' ' + interact.id + ' ' + interact.name);
     
     if (isPhone) {
       let cleaned = String(value).trim();
@@ -589,36 +611,40 @@ const FormFiller = {
       return true; // ALWAYS return true for "Present" on end-date fields to prevent angular library crash!
     }
 
-    const isTypeahead =
-      element.getAttribute('role') === 'combobox' ||
-      element.getAttribute('aria-autocomplete') != null ||
-      element.getAttribute('aria-haspopup') != null ||
-      element.getAttribute('list') != null ||
-      element.closest('[role="combobox"]') != null ||
-      this.isGreenhouseRemixComboboxInput(element) ||
-      (() => {
-        const host = element.getRootNode()?.host;
-        const chain = [element, host].filter(Boolean);
-        for (const el of chain) {
-          if (/typeahead|autocomplete|combobox|search/i.test(el.className || '') ||
-              /typeahead|autocomplete|combobox|search/i.test(el.tagName || '')) {
-            return true;
-          }
-        }
-        const container = element.closest('.field, [class*="input"], [class*="wrapper"]');
-        if (container) {
-          if (container.tagName.toLowerCase().includes('spl-') && !container.querySelector('spl-select, [class*="select"]')) {
-             return false;
-          }
-          if (container.querySelector('svg, .icon, [class*="icon"], [class*="search"]') || 
-              /typeahead|autocomplete|combobox|search/i.test(container.className || '')) {
-            return true;
-          }
-        }
-        return false;
-      })();
+    const isDate = this.isDateRelated(element, label);
 
-    const locationLike = this.fieldHintsLookLikeLocation(element);
+    const isTypeahead =
+      !isDate && (
+        element.getAttribute('role') === 'combobox' ||
+        element.getAttribute('aria-autocomplete') != null ||
+        element.getAttribute('aria-haspopup') != null ||
+        element.getAttribute('list') != null ||
+        element.closest('[role="combobox"]') != null ||
+        this.isGreenhouseRemixComboboxInput(element) ||
+        (() => {
+          const host = element.getRootNode()?.host;
+          const chain = [element, host].filter(Boolean);
+          for (const el of chain) {
+            if (/typeahead|autocomplete|combobox|search/i.test(el.className || '') ||
+                /typeahead|autocomplete|combobox|search/i.test(el.tagName || '')) {
+              return true;
+            }
+          }
+          const container = element.closest('.field, [class*="input"], [class*="wrapper"]');
+          if (container) {
+            if (container.tagName.toLowerCase().includes('spl-') && !container.querySelector('spl-select, [class*="select"]')) {
+               return false;
+            }
+            if (container.querySelector('svg, .icon, [class*="icon"], [class*="search"]') || 
+                /typeahead|autocomplete|combobox|search/i.test(container.className || '')) {
+              return true;
+            }
+          }
+          return false;
+        })()
+      );
+
+    const locationLike = this.fieldHintsLookLikeLocation(element, purpose, label);
 
     if (isTypeahead) {
       if (locationLike) await this.delay(200);
@@ -676,20 +702,20 @@ const FormFiller = {
   getListboxElForField(input) {
     if (!input) return null;
     // Locate the aria-controls listbox
-    const controls = input.getAttribute('aria-controls');
+    const controls = input.getAttribute('aria-controls') || input.getAttribute('aria-owns');
     if (controls) {
-      const lb = this.querySelectorDeep(`#${CSS.escape(controls)}`);
+      const lb = this.querySelectorDeep(`#${CSS.escape(controls)}`) || document.getElementById(controls);
       if (lb) return lb;
     }
     // Search parent hierarchy
     let current = input;
     for (let i = 0; i < 6 && current; i++) {
-      const listbox = this.querySelectorDeep('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"]', current);
+      const listbox = this.querySelectorDeep('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"], sf-typeahead, spl-overlay, sf-overlay, sf-list-box, spl-list-box, sf-typeahead-items', current);
       if (listbox && this.isVisibleOption(listbox)) return listbox;
       current = current.parentNode || current.host;
     }
     // Search globally in document
-    const listboxes = this.querySelectorAllDeep('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"]');
+    const listboxes = this.querySelectorAllDeep('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"], sf-typeahead, spl-overlay, sf-overlay, sf-list-box, spl-list-box, sf-typeahead-items');
     return listboxes.find(lb => this.isVisibleOption(lb)) || null;
   },
 
@@ -698,7 +724,7 @@ const FormFiller = {
     while (Date.now() - start < timeoutMs) {
       const lb = this.getListboxElForField(input);
       if (lb) {
-        const opts = this.querySelectorAllDeep('[role="option"], li, a, [class*="option"]', lb)
+        const opts = this.querySelectorAllDeep('[role="option"], li, a, [class*="option"], [class*="item"], [id*="option"], [id*="item"]', lb)
           .filter(o => this.isVisibleOption(o));
         if (opts.length > 0) return { lb, visible: opts };
       }
@@ -708,14 +734,7 @@ const FormFiller = {
   },
 
   async pickTypeaheadOption(input, value) {
-    // Intercept invalid dates for calendar/date-picker fields to prevent library crashes
-    const isDateRelated = (el) => {
-      const label = String(el.getAttribute('aria-label') || el.placeholder || el.id || el.name || '').toLowerCase();
-      const type = (el.type || '').toLowerCase();
-      return type === 'date' || /\b(date|from|to|year|calendar|month)\b/i.test(label) || /pick\s+a\s+date/i.test(el.placeholder || '');
-    };
-    
-    if (isDateRelated(input)) {
+    if (this.isDateRelated(input)) {
       const v = String(value).trim().toLowerCase();
       if (v === 'not provided' || v === 'unknown' || v === 'none' || v === 'null') {
         console.log(`[JobAutoFill] Intercepted and skipped invalid date string "${value}" for calendar field`);

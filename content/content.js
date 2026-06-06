@@ -349,7 +349,7 @@
     if (field.fieldType === 'aria-choice-group' && field.allElements) {
       return FormFiller.fillAriaChoiceGroup(field.element, String(value), field.allElements);
     }
-    return await FormFiller.fillField(field.element, String(value), field.fieldType);
+    return await FormFiller.fillField(field.element, String(value), field.fieldType, field.purpose, field.label);
   }
 
   function verifyFilledField(field, expectedValue) {

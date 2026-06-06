@@ -13,6 +13,16 @@ PortalHandlers.register({
 
   getFields() {
     const fields = [];
+    const closestDeep = (element, selector) => {
+      let current = element;
+      while (current) {
+        if (current.nodeType === Node.ELEMENT_NODE && current.matches && current.matches(selector)) {
+          return current;
+        }
+        current = current.parentNode || current.host;
+      }
+      return null;
+    };
     const sfSelector = 'sf-input, sf-select, sf-textarea, sf-checkbox, sf-radio-group, sf-date-picker';
 
     this._findAllDeep(document, sfSelector).forEach(el => {
@@ -20,9 +30,9 @@ PortalHandlers.register({
       const shadowRoot = el.shadowRoot;
       if (!shadowRoot) return;
 
-      // Skip elements inside active editing cards — customFill handles those
-      const closestCard = el.closest('sf-card, spl-card, oc-experience-entry, oc-experience-edit-form, oc-education-entry, oc-education-edit-form');
-      if (closestCard && (closestCard.hasAttribute('edit-mode') || closestCard.getAttribute('mode') === 'edit' || closestCard.tagName.toLowerCase().includes('edit-form'))) return;
+      // Skip elements inside experience or education sections — customFill handles those
+      const closestCard = closestDeep(el, 'sf-card, spl-card, oc-experience-entry, oc-experience-edit-form, oc-education-entry, oc-education-edit-form, [data-test="experience"], [data-test="education"], [class*="experience"], [class*="education"]');
+      if (closestCard) return;
 
       const input = shadowRoot.querySelector('input:not([type="hidden"]):not([type="submit"]):not([type="file"]), select, textarea');
       if (!input) return;
@@ -46,8 +56,9 @@ PortalHandlers.register({
       // Skip if already captured via sf-* wrapper
       if (el.closest(sfSelector)) return;
 
-      const card = el.closest('sf-card, spl-card, oc-experience-entry, oc-experience-edit-form, oc-education-entry, oc-education-edit-form');
-      if (card && (card.hasAttribute('edit-mode') || card.getAttribute('mode') === 'edit' || card.tagName.toLowerCase().includes('edit-form'))) return;
+      // Skip elements inside experience or education sections — customFill handles those
+      const card = closestDeep(el, 'sf-card, spl-card, oc-experience-entry, oc-experience-edit-form, oc-education-entry, oc-education-edit-form, [data-test="experience"], [data-test="education"], [class*="experience"], [class*="education"]');
+      if (card) return;
 
       const field = extractFieldInfo(el);
       if (field) fields.push(field);
@@ -184,29 +195,11 @@ PortalHandlers.register({
   },
 
   _findAllDeep(container, selector) {
-    const results = [];
-    function walk(root) {
-      if (!root) return;
-      try {
-        results.push(...Array.from(root.querySelectorAll(selector)));
-      } catch (e) { }
-      if (root.shadowRoot) {
-        walk(root.shadowRoot);
-      }
-      try {
-        const allChildren = root.querySelectorAll('*');
-        for (const child of allChildren) {
-          if (child.shadowRoot) walk(child.shadowRoot);
-        }
-      } catch (e) { }
-    }
-    walk(container);
-    return results;
+    return FormFiller.querySelectorAllDeep(selector, container);
   },
 
   _findDeep(container, selector) {
-    const all = this._findAllDeep(container, selector);
-    return all.length > 0 ? all[0] : null;
+    return FormFiller.querySelectorDeep(selector, container);
   },
 
   _setInputValue(input, value) {
@@ -254,6 +247,10 @@ PortalHandlers.register({
       const attr = (sfEl.getAttribute('label') || sfEl.getAttribute('name') || '').toLowerCase();
       for (const label of labels) {
         if (text.includes(label) || attr.includes(label)) {
+          const tag = sfEl.tagName.toLowerCase();
+          if (tag.includes('checkbox') || tag.includes('radio') || tag.includes('switch')) {
+            return sfEl;
+          }
           // Perform a deep search for native inputs inside the shadow DOM hierarchy of the component
           const input = this._findDeep(sfEl, 'input:not([type="hidden"]), select, textarea');
           return input || sfEl;
@@ -342,27 +339,18 @@ PortalHandlers.register({
         formattedDate = `${month}/${year}`;
       }
 
-      let fp = null;
-      let curr = input;
-      while (curr) {
-        if (curr._flatpickr) {
-          fp = curr._flatpickr;
-          break;
-        }
-        curr = curr.parentNode || curr.host;
-      }
+      // Assign a temporary unique attribute to locate this exact element in the main world
+      const tempId = 'clyde-' + Math.random().toString(36).substring(2, 9);
+      input.setAttribute('data-clyde-temp', tempId);
 
-      if (fp && typeof fp.setDate === 'function') {
-        console.log(`[SmartRecruiters]   Found flatpickr instance. Setting date via flatpickr:`, dateObj || formattedDate);
-        try {
-          fp.setDate(dateObj || formattedDate, true);
-        } catch (e) {
-          console.error(`[SmartRecruiters]   Failed to set date via flatpickr:`, e);
-          this._setInputValue(input, formattedDate);
-        }
-      } else {
-        this._setInputValue(input, formattedDate);
-      }
+      // Load and execute the main world script via a web-accessible extension resource
+      // (This bypasses Content Security Policy without injecting inline code blocks)
+      const script = document.createElement('script');
+      script.src = chrome.runtime.getURL('content/portal-handlers/smartrecruiters-inject.js');
+      script.setAttribute('data-temp-id', tempId);
+      script.setAttribute('data-date-val', formattedDate);
+      (document.head || document.documentElement).appendChild(script);
+      script.remove();
 
       // Propagate events up the shadow/DOM hierarchy to trigger Angular FormControl updates
       let parent = input;
@@ -384,14 +372,13 @@ PortalHandlers.register({
       input = this._findDeep(field, 'input:not([type="hidden"]), textarea') || field;
       console.log(`[SmartRecruiters]   Resolved custom text element to native input:`, input);
     }
-    this._setInputValue(input, value);
 
-    const isLocation = labels.some(l => l.includes('location') || l.includes('city'));
-    if (isLocation && input && input.tagName.toLowerCase() === 'input') {
-      console.log(`[SmartRecruiters] Location field detected. Simulating autocomplete selection...`);
-      try {
-        input.focus();
-      } catch (e) {}
+    const isCombobox = input.getAttribute('role') === 'combobox' || 
+                       input.getAttribute('aria-haspopup') != null ||
+                       labels.some(l => l.includes('location') || l.includes('city') || l.includes('school') || l.includes('institution') || l.includes('employer') || l.includes('company') || l.includes('title') || l.includes('role'));
+    if (isCombobox && input && input.tagName.toLowerCase() === 'input') {
+      console.log(`[SmartRecruiters] Combobox/autocomplete field detected. Typing incrementally...`);
+      await FormFiller.typeValueIncrementally(input, value);
       await sleep(600);
       
       const fireKey = (el, key, code, keyCode) => {
@@ -408,6 +395,8 @@ PortalHandlers.register({
       fireKey(input, 'ArrowDown', 'ArrowDown', 40);
       await sleep(300);
       fireKey(input, 'Enter', 'Enter', 13);
+    } else {
+      this._setInputValue(input, value);
     }
   },
 
@@ -426,20 +415,38 @@ PortalHandlers.register({
 
   async _handlePresentCheckbox(card, labels, shouldCheck) {
     const cb = this._findCardField(card, labels);
+    console.log(`[SmartRecruiters] _handlePresentCheckbox looking for [${labels.join(', ')}], found:`, cb);
     if (!cb) return;
+
     let checkbox = cb;
     if (cb.shadowRoot) {
       checkbox = cb.shadowRoot.querySelector('input[type="checkbox"]') || cb;
     }
-    if (checkbox.tagName.toLowerCase() === 'input' && checkbox.type === 'checkbox') {
-      if (checkbox.checked !== !!shouldCheck) {
-        checkbox.click();
+
+    const isChecked = cb.hasAttribute('checked') || 
+                      cb.getAttribute('aria-checked') === 'true' || 
+                      cb.classList.contains('checked') || 
+                      checkbox.checked === true;
+
+    if (isChecked !== !!shouldCheck) {
+      console.log(`[SmartRecruiters] Clicking checkbox to set state to: ${shouldCheck}`);
+      try { cb.click(); } catch(e) {}
+      if (cb.shadowRoot) {
+        const wrapper = cb.shadowRoot.querySelector('label, div, .c-spl-checkbox, [class*="checkbox"], [class*="wrapper"]');
+        if (wrapper) {
+          try { wrapper.click(); } catch(e) {}
+          wrapper.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+          wrapper.dispatchEvent(new Event('click', { bubbles: true, composed: true }));
+        }
+        const nativeInput = cb.shadowRoot.querySelector('input[type="checkbox"]');
+        if (nativeInput) {
+          try { nativeInput.click(); } catch(e) {}
+          nativeInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+          nativeInput.dispatchEvent(new Event('click', { bubbles: true, composed: true }));
+        }
       }
-    } else {
-      const isChecked = cb.hasAttribute('checked') || cb.getAttribute('aria-checked') === 'true' || cb.classList.contains('checked');
-      if (isChecked !== !!shouldCheck) {
-        try { cb.click(); } catch (e) { }
-      }
+      cb.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+      cb.dispatchEvent(new Event('click', { bubbles: true, composed: true }));
     }
   },
 
@@ -586,7 +593,7 @@ PortalHandlers.register({
   _parseDateRange(period, startDate, endDate) {
     if (startDate && endDate) return [startDate, endDate];
     if (period && (period.includes('–') || period.includes('-') || period.includes('to'))) {
-      const parts = period.split(/[–\-–\s]+to\s+|–/).map(p => p.trim()).filter(Boolean);
+      const parts = period.split(/\s*(?:-|–|—|to)\s*/i).map(p => p.trim()).filter(Boolean);
       if (parts.length >= 2) return [parts[0], parts[1]];
       if (parts.length === 1) {
         if (period.toLowerCase().includes('present') || period.toLowerCase().includes('current')) {

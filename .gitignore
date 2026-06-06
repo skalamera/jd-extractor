@@ -1,0 +1,44 @@
+# Node dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor directories/files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Environment files
+.env
+.env.*
+
+# Generated PDF worker / cache
+pdf.worker.min.js
+
+# Chrome extension development files
+chrome_debug.log
+
+# OneDrive sync metadata
+~$*
