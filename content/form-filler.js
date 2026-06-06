@@ -731,7 +731,7 @@ const FormFiller = {
       }
     }
     
-    return r.width >= 2 && r.height >= 2;
+    return r.width >= 2 && r.height >= 2 && r.top > 0;
   },
 
   async fireKey(element, key, code, keyCode) {
@@ -837,7 +837,10 @@ const FormFiller = {
     }
 
     const optionText = (option) => {
-      const raw = option.getAttribute('aria-label') || option.textContent || '';
+      const raw = option.getAttribute('aria-label') || 
+                  option.textContent || 
+                  (option.shadowRoot ? option.shadowRoot.textContent : '') || 
+                  '';
       return raw.replace(/\s+/g, ' ').trim().toLowerCase();
     };
 
