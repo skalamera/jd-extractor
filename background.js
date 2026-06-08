@@ -3,37 +3,48 @@ importScripts('lib/storage.js', 'lib/gemini.js', 'lib/clyde-client.js');
 // ── Context menus ──────────────────────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(() => {
+  // 1. "Save Job Description to Clyde" (Only when text is highlighted)
   chrome.contextMenus.create({
     id: "save-selection",
-    title: "Save to Clyde",
+    title: "📥 Save Job Description to Clyde",
     contexts: ["selection"]
   });
 
+  // 2. "Draft a Tailored Cover Letter" (Always at top-level)
   chrome.contextMenus.create({
-    id: "ai-answer",
-    title: "Answer with AI",
+    id: "ai-answer-cover-letter",
+    title: "📄 Draft a Tailored Cover Letter",
     contexts: ["selection", "page", "editable"]
   });
 
+  // 3. "What makes you a good fit?" (Only when no text is highlighted)
+  chrome.contextMenus.create({
+    id: "ai-answer-fit",
+    title: "🤔 What makes you a good fit?",
+    contexts: ["page", "editable"]
+  });
+
+  // 4. Parent menu: "Answer with Clyde"
+  chrome.contextMenus.create({
+    id: "ai-answer",
+    title: "💼 Answer with Clyde",
+    contexts: ["selection", "page", "editable"]
+  });
+
+  // 5. Submenu under "Answer with Clyde": "Answer (General)" (Only when selection exists)
   chrome.contextMenus.create({
     id: "ai-answer-default",
     parentId: "ai-answer",
-    title: "Answer Question (Default)",
-    contexts: ["selection", "page", "editable"]
+    title: "💬 Answer (General)",
+    contexts: ["selection"]
   });
 
+  // 6. Submenu under "Answer with Clyde": "Answer (Custom Instructions)" (Only when selection exists)
   chrome.contextMenus.create({
     id: "ai-answer-custom",
     parentId: "ai-answer",
-    title: "Custom Prompt",
-    contexts: ["selection", "page", "editable"]
-  });
-
-  chrome.contextMenus.create({
-    id: "ai-answer-fit",
-    parentId: "ai-answer",
-    title: "What makes you a good fit?",
-    contexts: ["selection", "page", "editable"]
+    title: "🔧 Answer (Custom Instructions)",
+    contexts: ["selection"]
   });
 });
 
@@ -113,14 +124,16 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     return;
   }
 
-  if (info.menuItemId === "ai-answer-default" || info.menuItemId === "ai-answer") {
-    const q = selectedText || "Please provide an answer based on my resume and the job description.";
-    handleAiAnswer(q, tab, "default");
+  if (info.menuItemId === "ai-answer" || info.menuItemId === "ai-answer-custom") {
+    handleAiAnswer(selectedText || null, tab, "custom");
   }
 
-  if (info.menuItemId === "ai-answer-custom") {
-    const q = selectedText || "Please provide an answer based on my resume and the job description.";
-    handleAiAnswer(q, tab, "custom");
+  if (info.menuItemId === "ai-answer-default") {
+    handleAiAnswer(selectedText || "Please provide an answer based on my resume and the job description.", tab, "default");
+  }
+
+  if (info.menuItemId === "ai-answer-cover-letter") {
+    handleContextCoverLetter(tab);
   }
 
   if (info.menuItemId === "ai-answer-fit") {
@@ -335,6 +348,54 @@ Example of good output:
   return { success: true, message: text.trim() };
 }
 
+async function handleContextCoverLetter(tab) {
+  chrome.storage.local.get({ geminiApiKey: "", clips: [], activeClipIdx: null, activeResumeText: null, masterResumeText: null }, async (data) => {
+    const apiKey = data.geminiApiKey?.trim();
+    if (!apiKey) {
+      showToast(tab.id, "❌ No Gemini API key set - open extension options to add it.", "#b45309", 5000);
+      return;
+    }
+
+    const resumeText = data.activeResumeText || data.masterResumeText || "";
+    if (!resumeText) {
+      showToast(tab.id, "❌ No resume uploaded. Please upload a resume in Settings.", "#b45309", 5000);
+      return;
+    }
+
+    const { clips, activeClipIdx } = data;
+    const activeClip = (activeClipIdx != null && clips[activeClipIdx]) ? clips[activeClipIdx] : null;
+    
+    if (!activeClip) {
+      showToast(tab.id, "❌ Please save a job description clip first before drafting a cover letter.", "#b45309", 5000);
+      return;
+    }
+
+    showToast(tab.id, "Drafting cover letter... ✍️", "#1e293b", 3000);
+
+    try {
+      const coverLetter = await Gemini.generateCoverLetter(
+        apiKey,
+        resumeText,
+        activeClip.text,
+        activeClip.companyName || "Unknown Company",
+        activeClip.jobTitle || "Unknown Role"
+      );
+
+      if (coverLetter) {
+        chrome.tabs.sendMessage(tab.id, {
+          type: 'SHOW_COVER_LETTER_PREVIEW',
+          coverLetter
+        }).catch(() => {});
+      } else {
+        showToast(tab.id, "❌ Failed to generate cover letter.", "#ea4335", 5000);
+      }
+    } catch (err) {
+      console.error(err);
+      showToast(tab.id, "❌ Cover letter generation failed.", "#ea4335", 5000);
+    }
+  });
+}
+
 // ── AI answer flow ─────────────────────────────────────────────────────────────
 
 async function handleAiAnswer(question, tab, type = "custom") {
@@ -367,83 +428,209 @@ async function handleAiAnswer(question, tab, type = "custom") {
       try {
         const results = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          func: () => {
+          args: [question],
+          func: (highlightedQuestion) => {
             return new Promise((resolve) => {
               const overlay = document.createElement('div');
               Object.assign(overlay.style, {
                 position: 'fixed', top: '0', left: '0', width: '100vw', height: '100vh',
                 backgroundColor: 'rgba(0,0,0,0.5)', zIndex: '2147483647', display: 'flex',
-                alignItems: 'center', justifyContent: 'center', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                alignItems: 'center', justifyContent: 'center'
               });
+
+              const shadow = overlay.attachShadow({ mode: 'open' });
 
               const modal = document.createElement('div');
               Object.assign(modal.style, {
-                background: '#fff', padding: '24px', borderRadius: '12px', width: '400px',
-                boxShadow: '0 4px 24px rgba(0,0,0,0.2)', color: '#111827',
+                background: '#1e293b', padding: '24px', borderRadius: '12px', width: '400px',
+                boxShadow: '0 10px 30px rgba(0, 0, 0, 0.4)', color: '#f1f5f9',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
                 boxSizing: 'border-box'
               });
 
-              modal.innerHTML = `
-                <h3 style="margin: 0 0 16px 0; font-size: 18px; color: #111827; font-weight: 600;">Custom AI Instructions</h3>
-                <div style="margin-bottom: 20px;">
-                  <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #374151;">Custom Instructions (optional)</label>
-                  <textarea id="ai-custom-prompt" rows="3" style="width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; resize: none; font-family: inherit; font-size: 14px;" placeholder="e.g. 'focus on my experience at company x...'"></textarea>
-                </div>
-                <div style="margin-bottom: 24px;">
-                  <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #374151;">Tone</label>
-                  <div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">
-                    <span>Casual</span>
-                    <span>Normal</span>
-                    <span>Formal</span>
+              const isHighlighted = !!highlightedQuestion;
+              const labelText = isHighlighted ? "Custom Instructions (optional)" : "Custom Prompt";
+              const placeholderText = isHighlighted ? "what to mention, what not to mention, what to focus more on, etc." : "e.g. 'explain how I can help optimize their support operations...'";
+
+              let subtitleBlockHtml = "";
+              if (isHighlighted) {
+                subtitleBlockHtml = `
+                  <div style="font-size: 13px !important; font-weight: 500 !important; color: #94a3b8 !important; margin-bottom: 16px !important; display: block !important; position: relative !important; line-height: 1.4 !important;">Custom AI Instructions</div>
+                `;
+              }
+
+              let questionBlockHtml = "";
+              if (isHighlighted) {
+                questionBlockHtml = `
+                  <div style="margin-bottom: 20px !important; display: block !important; position: relative !important;">
+                    <div style="font-size: 11px !important; font-weight: 600 !important; color: #94a3b8 !important; text-transform: uppercase !important; letter-spacing: 0.05em !important; margin-bottom: 6px !important; line-height: 1.2 !important; display: block !important; position: relative !important;">Selected Question</div>
+                    <div style="background: rgba(15, 23, 42, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.05) !important; border-radius: 6px !important; padding: 12px !important; color: #cbd5e1 !important; font-size: 13px !important; line-height: 1.5 !important; max-height: 90px !important; overflow-y: auto !important; font-style: italic !important; display: block !important; position: relative !important; text-align: left !important; box-sizing: border-box !important;">
+                      "${highlightedQuestion}"
+                    </div>
                   </div>
-                  <input type="range" id="ai-tone-slider" min="1" max="3" value="2" style="width: 100%; accent-color: #fec111; cursor: pointer;">
+                `;
+              }
+
+              modal.innerHTML = `
+                <style>
+                  div, label, span, textarea, button, input {
+                    box-sizing: border-box !important;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+                  }
+                  label {
+                    display: block !important;
+                    margin-bottom: 12px !important;
+                    font-size: 14px !important;
+                    font-weight: 500 !important;
+                    color: #cbd5e1 !important;
+                    position: relative !important;
+                    height: auto !important;
+                    line-height: 1.4 !important;
+                    float: none !important;
+                    clear: both !important;
+                  }
+                  span {
+                    font-weight: inherit !important;
+                    color: inherit !important;
+                  }
+                  .range-container {
+                    position: relative !important;
+                    width: 100% !important;
+                    height: 6px !important;
+                    margin-top: 14px !important;
+                    margin-bottom: 14px !important;
+                    background: rgba(255, 255, 255, 0.1) !important;
+                    border-radius: 3px !important;
+                    display: block !important;
+                  }
+                  .range-track {
+                    position: absolute !important;
+                    height: 100% !important;
+                    background: #38bdf8 !important;
+                    border-radius: 3px !important;
+                    display: block !important;
+                  }
+                  .range-slider {
+                    position: absolute !important;
+                    width: 100% !important;
+                    height: 6px !important;
+                    background: none !important;
+                    pointer-events: none !important;
+                    -webkit-appearance: none !important;
+                    appearance: none !important;
+                    margin: 0 !important;
+                    top: 0 !important;
+                    left: 0 !important;
+                    display: block !important;
+                  }
+                  .range-slider::-webkit-slider-thumb {
+                    height: 16px !important;
+                    width: 16px !important;
+                    border-radius: 50% !important;
+                    background: #38bdf8 !important;
+                    cursor: pointer !important;
+                    pointer-events: auto !important;
+                    -webkit-appearance: none !important;
+                    appearance: none !important;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.3) !important;
+                    transition: transform 0.1s !important;
+                  }
+                  .range-slider::-webkit-slider-thumb:hover {
+                    transform: scale(1.2) !important;
+                  }
+                </style>
+                <h3 style="margin: 0 0 ${isHighlighted ? '4px' : '16px'} 0 !important; font-size: 18px !important; color: #38bdf8 !important; font-weight: 600 !important; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important; display: block !important; position: relative !important; line-height: 1.4 !important; float: none !important; height: auto !important;">Answer with Clyde</h3>
+                ${subtitleBlockHtml}
+                ${questionBlockHtml}
+                <div style="margin-bottom: 28px !important; display: block !important; position: relative !important; float: none !important; height: auto !important;">
+                  <label style="display: block !important; margin-bottom: 12px !important; font-size: 14px !important; font-weight: 500 !important; color: #cbd5e1 !important; position: relative !important; line-height: 1.4 !important; float: none !important; height: auto !important;">${labelText}</label>
+                  <textarea id="ai-custom-prompt" rows="3" style="width: 100% !important; box-sizing: border-box !important; padding: 10px !important; border: 1px solid rgba(255, 255, 255, 0.15) !important; border-radius: 6px !important; resize: none !important; font-family: inherit !important; font-size: 14px !important; display: block !important; position: relative !important; margin-top: 4px !important; height: 80px !important; background: rgba(15, 23, 42, 0.6) !important; color: #f1f5f9 !important; outline: none !important;" placeholder="${placeholderText}"></textarea>
                 </div>
-                <div style="margin-bottom: 20px;">
-                  <label style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #374151;">
-                    <span>Character Limit</span>
-                    <span id="char-limit-val" style="color: #6b7280; font-weight: 400;">No limit</span>
+                <div style="margin-bottom: 32px !important; display: block !important; position: relative !important; float: none !important; height: auto !important;">
+                  <label style="display: block !important; margin-bottom: 12px !important; font-size: 14px !important; font-weight: 500 !important; color: #cbd5e1 !important; position: relative !important; line-height: 1.4 !important; float: none !important; height: auto !important;">Tone</label>
+                  <div style="display: flex !important; align-items: center !important; justify-content: space-between !important; font-size: 12px !important; color: #94a3b8 !important; margin-bottom: 12px !important; font-weight: 500 !important; position: relative !important; float: none !important; height: auto !important; width: 100% !important; line-height: 1.4 !important;">
+                    <span style="font-weight: 500 !important; color: #94a3b8 !important; display: inline !important; position: relative !important;">Casual</span>
+                    <span style="font-weight: 500 !important; color: #94a3b8 !important; display: inline !important; position: relative !important;">Normal</span>
+                    <span style="font-weight: 500 !important; color: #94a3b8 !important; display: inline !important; position: relative !important;">Formal</span>
+                  </div>
+                  <input type="range" id="ai-tone-slider" min="1" max="3" value="2" style="width: 100% !important; accent-color: #38bdf8 !important; cursor: pointer !important; display: block !important; position: relative !important; margin-top: 4px !important; height: auto !important;">
+                </div>
+                <div style="margin-bottom: 24px !important; display: block !important; position: relative !important; float: none !important; height: auto !important;">
+                  <label style="display: flex !important; justify-content: space-between !important; margin-bottom: 8px !important; font-size: 14px !important; font-weight: 500 !important; color: #cbd5e1 !important; position: relative !important; line-height: 1.4 !important; float: none !important; height: auto !important;">
+                    <span style="font-weight: 500 !important; color: #cbd5e1 !important; display: inline !important; position: relative !important;">Character Count Range</span>
+                    <span id="char-limit-val" style="color: #94a3b8 !important; font-weight: 400 !important; display: inline !important; position: relative !important;">No limit</span>
                   </label>
-                  <input type="range" id="ai-char-limit" min="0" max="2000" step="50" value="0" style="width: 100%; accent-color: #fec111; cursor: pointer;">
+                  <div class="range-container">
+                    <div id="char-track" class="range-track" style="left: 0%; right: 0%;"></div>
+                    <input type="range" id="ai-char-min" class="range-slider" min="0" max="2000" step="50" value="0">
+                    <input type="range" id="ai-char-max" class="range-slider" min="0" max="2000" step="50" value="2000">
+                  </div>
                 </div>
-                <div style="margin-bottom: 24px;">
-                  <label style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #374151;">
-                    <span>Word Count Limit</span>
-                    <span id="word-limit-val" style="color: #6b7280; font-weight: 400;">No limit</span>
-                  </label>
-                  <input type="range" id="ai-word-limit" min="0" max="500" step="10" value="0" style="width: 100%; accent-color: #fec111; cursor: pointer;">
-                </div>
-                <div style="display: flex; justify-content: flex-end; gap: 12px;">
-                  <button id="ai-modal-cancel" style="padding: 8px 16px; border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; transition: background 0.15s;">Cancel</button>
-                  <button id="ai-modal-submit" style="padding: 8px 16px; border: none; background: #fec111; color: #111827; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; transition: opacity 0.15s;">Generate</button>
+                <div style="display: flex; justify-content: flex-end; gap: 12px; display: flex !important; position: relative !important;">
+                  <button id="ai-modal-cancel" style="padding: 8px 16px; border: 1px solid rgba(255, 255, 255, 0.1) !important; background: rgba(255, 255, 255, 0.08) !important; color: #cbd5e1 !important; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; transition: background 0.15s; outline: none !important;">Cancel</button>
+                  <button id="ai-modal-submit" style="padding: 8px 16px; border: none !important; background: #f97316 !important; color: #ffffff !important; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; transition: opacity 0.15s; outline: none !important;">Generate</button>
                 </div>
               `;
 
-              overlay.appendChild(modal);
+              shadow.appendChild(modal);
               document.body.appendChild(overlay);
 
-              const btnCancel = document.getElementById('ai-modal-cancel');
-              const btnSubmit = document.getElementById('ai-modal-submit');
-              const inputCustom = document.getElementById('ai-custom-prompt');
+              const btnCancel = shadow.getElementById('ai-modal-cancel');
+              const btnSubmit = shadow.getElementById('ai-modal-submit');
+              const inputCustom = shadow.getElementById('ai-custom-prompt');
 
-              btnCancel.onmouseover = () => btnCancel.style.background = '#f9fafb';
-              btnCancel.onmouseout = () => btnCancel.style.background = '#fff';
+              btnCancel.onmouseover = () => btnCancel.style.background = 'rgba(255, 255, 255, 0.15)';
+              btnCancel.onmouseout = () => btnCancel.style.background = 'rgba(255, 255, 255, 0.08)';
               
               btnSubmit.onmouseover = () => btnSubmit.style.opacity = '0.9';
               btnSubmit.onmouseout = () => btnSubmit.style.opacity = '1';
 
               setTimeout(() => inputCustom.focus(), 50);
 
-              const charSlider = document.getElementById('ai-char-limit');
-              const charVal = document.getElementById('char-limit-val');
-              charSlider.addEventListener('input', (e) => {
-                charVal.textContent = e.target.value === '0' ? 'No limit' : e.target.value;
-              });
+              // Setup Character Range Dual Sliders
+              const charMin = shadow.getElementById('ai-char-min');
+              const charMax = shadow.getElementById('ai-char-max');
+              const charTrack = shadow.getElementById('char-track');
+              const charVal = shadow.getElementById('char-limit-val');
 
-              const wordSlider = document.getElementById('ai-word-limit');
-              const wordVal = document.getElementById('word-limit-val');
-              wordSlider.addEventListener('input', (e) => {
-                wordVal.textContent = e.target.value === '0' ? 'No limit' : e.target.value;
-              });
+              const updateCharRange = () => {
+                let minVal = parseInt(charMin.value, 10);
+                let maxVal = parseInt(charMax.value, 10);
+
+                if (minVal > maxVal) {
+                  charMin.value = maxVal;
+                  minVal = maxVal;
+                }
+
+                const minPercent = (minVal / charMin.max) * 100;
+                const maxPercent = (maxVal / charMax.max) * 100;
+
+                charTrack.style.left = minPercent + '%';
+                charTrack.style.right = (100 - maxPercent) + '%';
+
+                if (minVal === 0 && maxVal === 2000) {
+                  charVal.textContent = 'No limit';
+                } else {
+                  charVal.textContent = `${minVal} - ${maxVal} chars`;
+                }
+              };
+
+              charMin.addEventListener('input', updateCharRange);
+              charMax.addEventListener('input', updateCharRange);
+              updateCharRange();
+
+              // Submit state validation
+              const updateSubmitState = () => {
+                if (!isHighlighted) {
+                  const hasText = inputCustom.value.trim().length > 0;
+                  btnSubmit.disabled = !hasText;
+                  btnSubmit.style.opacity = hasText ? '1' : '0.5';
+                  btnSubmit.style.cursor = hasText ? 'pointer' : 'not-allowed';
+                }
+              };
+
+              inputCustom.addEventListener('input', updateSubmitState);
+              updateSubmitState();
 
               btnCancel.onclick = () => {
                 document.body.removeChild(overlay);
@@ -452,14 +639,14 @@ async function handleAiAnswer(question, tab, type = "custom") {
 
               btnSubmit.onclick = () => {
                 const text = inputCustom.value;
-                const toneVal = document.getElementById('ai-tone-slider').value;
+                const toneVal = shadow.getElementById('ai-tone-slider').value;
                 let tone = 'normal';
                 if (toneVal === '1') tone = 'casual';
                 if (toneVal === '3') tone = 'formal';
-                const charLimit = parseInt(document.getElementById('ai-char-limit').value, 10);
-                const wordLimit = parseInt(document.getElementById('ai-word-limit').value, 10);
+                const cMin = parseInt(charMin.value, 10);
+                const cMax = parseInt(charMax.value, 10);
                 document.body.removeChild(overlay);
-                resolve({ text, tone, charLimit, wordLimit });
+                resolve({ text, tone, charMin: cMin, charMax: cMax });
               };
             });
           }
@@ -468,10 +655,18 @@ async function handleAiAnswer(question, tab, type = "custom") {
         const res = results[0]?.result;
         if (!res) return; // User cancelled
         
-        customDirections = res.text?.trim() || null;
+        if (question) {
+          // Mode 1: Text highlighted (Answer with custom instructions)
+          customDirections = res.text?.trim() || null;
+        } else {
+          // Mode 2: No text highlighted (Answer with custom prompt)
+          question = res.text?.trim() || null;
+          customDirections = null;
+        }
+        
         tonePreference = res.tone;
-        charLimitPref = res.charLimit || 0;
-        wordLimitPref = res.wordLimit || 0;
+        charLimitPref = (res.charMin > 0 || res.charMax < 2000) ? { min: res.charMin, max: res.charMax } : 0;
+        wordLimitPref = 0;
       } catch(err) {
         // Ignore if prompt fails
         console.error("Could not inject custom prompt modal:", err);
@@ -1340,6 +1535,7 @@ async function handleMessage(message, sender) {
       return await handleGenerateCoverLetter(message.payload);
 
     case 'GET_PROFILE':
+      flushUnsyncedClips(); // Trigger offline queue flush in background on popup load
       return await handleGetProfile();
 
     case 'GET_RESUME_FILE':
@@ -1575,30 +1771,69 @@ async function handleClearResume() {
   return { success: true };
 }
 
-async function autoSyncClipToClyde(clip) {
+async function queueUnsyncedClip(clip) {
   try {
-    const data = await chrome.storage.local.get(['clydeAutoSync', 'clydeHost', 'clydePort']);
-    if (data.clydeAutoSync) {
+    const data = await chrome.storage.local.get({ unsyncedClips: [] });
+    const exists = data.unsyncedClips.some(c => c.savedAt === clip.savedAt);
+    if (!exists) {
+      data.unsyncedClips.push(clip);
+      await chrome.storage.local.set({ unsyncedClips: data.unsyncedClips });
+      console.log('[background] Clip added to sync queue:', clip.companyName);
+    }
+  } catch (err) {
+    console.error('[background] Failed to queue clip:', err.message);
+  }
+}
+
+async function flushUnsyncedClips() {
+  try {
+    const data = await chrome.storage.local.get(['clydeAutoSync', 'clydeHost', 'clydePort', 'unsyncedClips']);
+    if (data.clydeAutoSync && data.unsyncedClips && data.unsyncedClips.length > 0) {
       const host = data.clydeHost || '127.0.0.1';
       const port = parseInt(data.clydePort) || 4593;
       const opts = { host, port };
-      
+
       const availability = await ClydeClient.isAvailable(opts);
       if (availability.available) {
-        await ClydeClient.syncJobToClyde(
-          clip.companyName || 'Unknown Company',
-          clip.text || '',
-          clip.jobTitle || '',
-          opts
-        );
-        console.log('[background] Auto-synced clip to Clyde:', clip.companyName);
+        console.log(`[background] Clyde Desktop is online. Flushing ${data.unsyncedClips.length} queued clips...`);
+        const queue = [...data.unsyncedClips];
+        const remaining = [];
+
+        for (const clip of queue) {
+          try {
+            await ClydeClient.syncJobToClyde(
+              clip.companyName || 'Unknown Company',
+              clip.text || '',
+              clip.jobTitle || '',
+              opts
+            );
+            console.log('[background] Successfully synced queued clip:', clip.companyName);
+          } catch (err) {
+            console.error('[background] Failed to sync queued clip:', clip.companyName, err.message);
+            remaining.push(clip);
+          }
+        }
+
+        await chrome.storage.local.set({ unsyncedClips: remaining });
       } else {
-        console.warn('[background] Auto-sync skipped: Clyde is not reachable.');
+        console.warn('[background] Sync check: Clyde Desktop is not reachable. Queue remains intact.');
       }
     }
   } catch (err) {
-    console.error('[background] Auto-sync to Clyde failed:', err.message);
+    console.error('[background] Flush unsynced clips failed:', err.message);
   }
 }
+
+async function autoSyncClipToClyde(clip) {
+  // Always queue the clip first to guarantee persistence
+  await queueUnsyncedClip(clip);
+  // Attempt to flush the queue immediately
+  await flushUnsyncedClips();
+}
+
+// Trigger queue flush on browser / extension startup
+chrome.runtime.onStartup.addListener(() => {
+  flushUnsyncedClips();
+});
 
 

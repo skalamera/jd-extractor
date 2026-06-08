@@ -52,6 +52,12 @@
 
   let skipRequested = false;
 
+  // Helper to query element inside overlay's shadow root
+  function getOverlayElement(id) {
+    if (!overlay) return null;
+    return overlay.shadowRoot ? overlay.shadowRoot.getElementById(id) : document.getElementById(id);
+  }
+
   // Create status overlay
   function createOverlay() {
     if (window !== window.top) return; // Only show UI in the top frame
@@ -60,53 +66,63 @@
 
     overlay = document.createElement('div');
     overlay.id = 'job-autofill-overlay';
-    overlay.innerHTML = `
+    
+    // Set fixed positioning and other container properties on host element
+    overlay.style.position = 'fixed';
+    overlay.style.top = '20px';
+    overlay.style.right = '20px';
+    overlay.style.zIndex = '1000000';
+    overlay.style.transition = 'opacity 0.3s';
+    overlay.style.opacity = '1';
+
+    const shadow = overlay.attachShadow({ mode: 'open' });
+    shadow.innerHTML = `
       <div style="
-        position: fixed;
-        top: 16px;
-        right: 16px;
-        background: white;
-        border-radius: 12px;
-        padding: 16px 20px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        z-index: 1000000;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+        background: rgba(15, 23, 42, 0.75) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 12px !important;
+        padding: 18px 22px !important;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
         font-size: 14px !important;
         line-height: 1.5 !important;
         text-align: left !important;
         box-sizing: border-box !important;
-        min-width: 280px !important;
+        min-width: 290px !important;
         max-width: 360px !important;
         height: auto !important;
-        transition: opacity 0.3s;
+        display: block !important;
+        position: relative !important;
       " id="job-autofill-overlay-inner">
-        <div style="font-weight: 700; font-size: 15px; margin-bottom: 8px; color: #1a73e8;">
-          Job AutoFill
+        <div style="font-weight: 700; font-size: 15px; margin-bottom: 12px !important; color: #38bdf8 !important; line-height: 1.4 !important; display: block !important; position: relative !important; float: none !important; clear: both !important; height: auto !important; width: auto !important;">
+          Clyde AutoFill
         </div>
-        <div id="job-autofill-status" style="color: #333;">
+        <div id="job-autofill-status" style="color: #cbd5e1 !important; font-size: 13px !important; line-height: 1.5 !important; display: block !important; position: relative !important; float: none !important; clear: both !important; height: auto !important; width: auto !important;">
           Initializing...
         </div>
         <div id="job-autofill-progress" style="
-          margin-top: 8px;
-          height: 4px;
-          background: #e0e0e0;
-          border-radius: 2px;
-          overflow: hidden;
+          margin-top: 12px !important;
+          height: 5px !important;
+          background: rgba(255, 255, 255, 0.15) !important;
+          border-radius: 3px !important;
+          overflow: hidden !important;
         ">
           <div id="job-autofill-progress-bar" style="
-            height: 100%;
-            background: #1a73e8;
+            height: 100% !important;
+            background: #38bdf8 !important;
             width: 0%;
-            transition: width 0.3s;
-            border-radius: 2px;
+            transition: width 0.3s !important;
+            border-radius: 3px !important;
           "></div>
         </div>
-        <button id="job-autofill-skip-btn" style="margin-top: 12px; width: 100%; padding: 8px; background: #f97316; border: 1px solid #ea580c; border-radius: 4px; cursor: pointer; color: white; font-weight: 600; font-size: 13px; transition: background 0.2s; line-height: normal !important; display: none !important; box-sizing: border-box !important;">Skip Current Field</button>
+        <button id="job-autofill-skip-btn" style="margin-top: 14px !important; width: 100% !important; padding: 8px !important; background: rgba(249, 115, 22, 0.8) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 6px !important; cursor: pointer !important; color: white !important; font-weight: 600 !important; font-size: 12px !important; transition: background 0.2s !important; line-height: normal !important; display: none !important; box-sizing: border-box !important;">Skip Current Field</button>
       </div>
     `;
     document.body.appendChild(overlay);
 
-    const skipBtn = document.getElementById('job-autofill-skip-btn');
+    const skipBtn = getOverlayElement('job-autofill-skip-btn');
     if (skipBtn) {
       skipBtn.addEventListener('mouseenter', () => skipBtn.style.background = '#ea580c');
       skipBtn.addEventListener('mouseleave', () => skipBtn.style.background = '#f97316');
@@ -121,8 +137,8 @@
   function updateStatus(text, progress) {
     if (window === window.top) {
       if (!overlay) createOverlay();
-      const statusEl = document.getElementById('job-autofill-status');
-      const progressBar = document.getElementById('job-autofill-progress-bar');
+      const statusEl = getOverlayElement('job-autofill-status');
+      const progressBar = getOverlayElement('job-autofill-progress-bar');
       if (statusEl) statusEl.textContent = text;
       if (progressBar && progress !== undefined) progressBar.style.width = `${progress}%`;
     }
@@ -135,40 +151,52 @@
 
   function showResult(filled, failedLabels, total) {
     if (window === window.top) {
-      const skipBtn = document.getElementById('job-autofill-skip-btn');
+      const skipBtn = getOverlayElement('job-autofill-skip-btn');
       if (skipBtn) skipBtn.style.display = 'none';
 
-      const statusEl = document.getElementById('job-autofill-status');
+      const statusEl = getOverlayElement('job-autofill-status');
       const failedCount = failedLabels.length;
 
       let failedListHtml = '';
       if (failedCount > 0) {
         const uniqueFailed = [...new Set(failedLabels)];
         failedListHtml = `
-          <div style="margin-top: 8px; max-height: 120px; overflow-y: auto; background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 8px; font-size: 12px; line-height: 1.4 !important; color: #92400e; box-sizing: border-box !important;">
-            <strong>Please double-check for accuracy and completeness (${failedCount}):</strong><br>
-            ${uniqueFailed.map(label => `<div style="margin-top:2px;">• ${label}</div>`).join('')}
+          <div style="display: block !important; position: relative !important; margin-top: 10px !important; max-height: 140px !important; overflow-y: auto !important; background: rgba(251, 191, 36, 0.1) !important; border: 1px solid rgba(251, 191, 36, 0.3) !important; border-radius: 6px !important; padding: 10px !important; font-size: 12px !important; line-height: 1.5 !important; color: #fde047 !important; box-sizing: border-box !important;">
+            <strong style="display: block !important; position: relative !important; font-weight: 700 !important; margin-bottom: 6px !important; font-size: 12px !important; line-height: 1.4 !important;">Please double-check for accuracy and completeness (${failedCount}):</strong>
+            <ul style="list-style-type: none !important; margin: 0 !important; padding: 0 0 0 4px !important; display: block !important; position: relative !important;">
+              ${uniqueFailed.map(label => `
+                <li style="margin-bottom: 6px !important; line-height: 1.5 !important; display: list-item !important; list-style: none !important; position: relative !important; float: none !important; clear: both !important; min-height: 18px !important; height: auto !important; width: auto !important; visibility: visible !important; text-align: left !important; font-size: 12px !important; color: #fde047 !important;">
+                  • ${label}
+                </li>
+              `).join('')}
+            </ul>
           </div>
         `;
       }
 
       if (statusEl) {
         statusEl.innerHTML = `
-          <div style="color: #34a853; font-weight: 600; line-height: 1.4 !important; display: block !important;">Autofill Complete</div>
-          <div style="margin-top: 4px; color: #666; font-size: 13px; line-height: 1.4 !important; display: block !important;">
+          <div style="color: #4ade80 !important; font-weight: 600; line-height: 1.4 !important; display: block !important; position: relative !important;">Autofill Complete</div>
+          <div style="margin-top: 4px; color: #cbd5e1 !important; font-size: 13px; line-height: 1.4 !important; display: block !important; position: relative !important;">
             Processed ${total} fields${failedCount > 0 ? ` (${failedCount} require verification)` : ''}
           </div>
           ${failedListHtml}
-          <div style="margin-top: 6px; color: #888; font-size: 11px; font-style: italic; line-height: 1.4 !important; display: block !important;">
+          <div style="margin-top: 6px; color: #94a3b8 !important; font-size: 11px; font-style: italic; line-height: 1.4 !important; display: block !important; position: relative !important;">
             We recommend a quick manual review of your application before submitting.
           </div>
-          <button id="job-autofill-dismiss-btn" style="margin-top: 12px; width: 100%; padding: 8px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 4px; cursor: pointer; color: #374151; font-weight: 600; font-size: 13px; transition: background 0.2s; line-height: normal !important; display: block !important;">Dismiss</button>
+          <button id="job-autofill-dismiss-btn" style="margin-top: 12px; width: 100%; padding: 8px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; cursor: pointer; color: #cbd5e1; font-weight: 600; font-size: 13px; transition: background 0.2s, color 0.2s; line-height: normal !important; display: block !important; box-sizing: border-box !important;">Dismiss</button>
         `;
 
-        const dismissBtn = document.getElementById('job-autofill-dismiss-btn');
+        const dismissBtn = getOverlayElement('job-autofill-dismiss-btn');
         if (dismissBtn) {
-          dismissBtn.addEventListener('mouseenter', () => dismissBtn.style.background = '#e5e7eb');
-          dismissBtn.addEventListener('mouseleave', () => dismissBtn.style.background = '#f3f4f6');
+          dismissBtn.addEventListener('mouseenter', () => {
+            dismissBtn.style.background = 'rgba(255, 255, 255, 0.15)';
+            dismissBtn.style.color = '#ffffff';
+          });
+          dismissBtn.addEventListener('mouseleave', () => {
+            dismissBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+            dismissBtn.style.color = '#cbd5e1';
+          });
           dismissBtn.addEventListener('click', () => {
             if (overlay) {
               overlay.style.opacity = '0';
@@ -178,7 +206,7 @@
           });
         }
       }
-      const progressBar = document.getElementById('job-autofill-progress-bar');
+      const progressBar = getOverlayElement('job-autofill-progress-bar');
       if (progressBar) {
         progressBar.style.width = '100%';
         progressBar.style.background = failedCount > 0 ? '#fbbc04' : '#34a853';
@@ -203,16 +231,16 @@
 
   function showError(message) {
     if (window === window.top) {
-      const skipBtn = document.getElementById('job-autofill-skip-btn');
+      const skipBtn = getOverlayElement('job-autofill-skip-btn');
       if (skipBtn) skipBtn.style.display = 'none';
 
-      const statusEl = document.getElementById('job-autofill-status');
+      const statusEl = getOverlayElement('job-autofill-status');
       if (statusEl) {
         statusEl.innerHTML = `
-          <div style="color: #ea4335; margin-bottom: 12px;">${message}</div>
+          <div style="color: #ea4335; margin-bottom: 12px; line-height: 1.4 !important; display: block !important;">${message}</div>
           <button id="job-autofill-error-dismiss-btn" style="width: 100%; padding: 6px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 4px; cursor: pointer; color: #374151; font-weight: 600; font-size: 12px; transition: background 0.2s;">Dismiss</button>
         `;
-        const dismissBtn = document.getElementById('job-autofill-error-dismiss-btn');
+        const dismissBtn = getOverlayElement('job-autofill-error-dismiss-btn');
         if (dismissBtn) {
           dismissBtn.addEventListener('mouseenter', () => dismissBtn.style.background = '#e5e7eb');
           dismissBtn.addEventListener('mouseleave', () => dismissBtn.style.background = '#f3f4f6');
@@ -233,7 +261,7 @@
   }
 
   function getFieldPurpose(field) {
-    return classifyFieldPurpose(field.label, field.options || [], field.fieldType);
+    return classifyFieldPurpose(field.label, field.options || [], field.fieldType, field.element);
   }
 
   function resolveFieldElement(field) {
@@ -246,6 +274,17 @@
     if (el?.name) {
       const fresh = document.querySelector(`[name="${CSS.escape(el.name)}"]`);
       if (fresh) return { ...field, element: fresh };
+    }
+    if (field.label && el) {
+      const allCandidates = FormFiller.querySelectorAllDeep('input:not([type="hidden"]), textarea, select');
+      for (const cand of allCandidates) {
+        if (cand.tagName.toLowerCase() === el.tagName.toLowerCase()) {
+          const l = getFieldLabel(cand);
+          if (l === field.label) {
+            return { ...field, element: cand };
+          }
+        }
+      }
     }
     return field;
   }
@@ -442,12 +481,16 @@
 
   // Main auto-fill flow
   async function startAutoFill() {
+    if (window !== window.top) {
+      console.log('[JobAutoFill] Skipping autofill in sub-frame');
+      return;
+    }
     if (isRunning) return;
     isRunning = true;
     skipRequested = false;
 
     createOverlay();
-    const skipBtn = document.getElementById('job-autofill-skip-btn');
+    const skipBtn = getOverlayElement('job-autofill-skip-btn');
     if (skipBtn) skipBtn.style.display = 'block';
 
     updateStatus('Detecting application form...', 5);
@@ -473,11 +516,14 @@
 
       // Detect portal handler
       const handler = PortalHandlers.detect() || GenericHandler;
+      console.log(`[JobAutoFill Debug] Detected handler: "${handler?.name || 'Generic'}"`);
+      console.log(`[JobAutoFill Debug] Is customFill defined on handler? ${typeof handler?.customFill === 'function'}`);
       const isSmartRecruiters = handler?.name === 'SmartRecruiters';
 
       // Click all "+ Add" buttons (Experience, Education rows) to expand dynamic form fields (crossing shadow boundaries)
       // Skip if the handler has a customFill method that manages its own card expansion
       if (!handler.customFill) {
+        console.log('[JobAutoFill Debug] No customFill defined on handler. Doing standard expansion.');
         const allButtons = querySelectorAllDeep('button, [role="button"], a.btn, .btn, sf-button, [class*="button"], [class*="btn"], .add-button, span, div, a');
         console.log(`[JobAutoFill Debug] querySelectorAllDeep found ${allButtons.length} candidate elements.`);
         const addButtons = allButtons.filter(el => {
@@ -492,23 +538,37 @@
         });
 
         if (addButtons.length > 0) {
-          console.log(`[JobAutoFill] Found ${addButtons.length} "+ Add" button(s). Clicking to expand form sections...`);
-          for (const btn of addButtons) {
+          // Deduplicate to keep only the leaf (most specific) click targets
+          const leafButtons = addButtons.filter(btn => {
+            return !addButtons.some(other => other !== btn && btn.contains(other));
+          });
+
+          console.log(`[JobAutoFill] Clicking ${leafButtons.length} "+ Add" button(s) to expand form sections...`);
+          for (const btn of leafButtons) {
             try {
               btn.click();
+              await FormFiller.delay(200); // short delay between clicks for React state updates
             } catch (e) {
               console.warn('[JobAutoFill] Click failed on "+ Add" button:', e);
             }
           }
-          await FormFiller.delay(350); // wait for animations to complete
+          await FormFiller.delay(500); // wait for all animations to complete
         }
+      } else {
+        console.log(`[JobAutoFill Debug] customFill IS defined on "${handler.name}". Skipping standard expansion.`);
       }
 
       // If handler has a custom multi-card/complex fill flow, invoke it first
       // (e.g. SmartRecruiters experience/education sections with Shadow DOM cards)
       if (handler.customFill) {
+        console.log(`[JobAutoFill Debug] Calling customFill for "${handler.name}"...`);
         updateStatus('Filling experience and education details...', 10);
-        await handler.customFill(profileData);
+        try {
+          await handler.customFill(profileData);
+          console.log(`[JobAutoFill Debug] customFill for "${handler.name}" completed successfully.`);
+        } catch (e) {
+          console.error(`[JobAutoFill Debug] Exception caught inside customFill for "${handler.name}":`, e);
+        }
       }
 
       updateStatus('Scanning form fields...', 15);
@@ -601,37 +661,7 @@
           return true;
         });
 
-        // 5. Attach resume first (only on pass 1) - Skip on SmartRecruiters to avoid auto-parser race conditions
-        if (pass === 1 && fileFields.length > 0 && !isSmartRecruiters) {
-          updateStatus('Attaching resume...', 32);
-          const resumeFile = await chrome.runtime.sendMessage({ type: 'GET_RESUME_FILE' });
-          if (resumeFile) {
-            const orderedResumeSlots = [...fileFields].sort((a, b) => {
-              const lab = normalizeFieldText(String(a.label || ''));
-              return /\bresume\b|\bcv\b|\bcurriculum\b/.test(lab) ? -1 : 1;
-            });
-            let attachedResumeOnce = false;
-            for (const field of orderedResumeSlots) {
-              if (attachedResumeOnce) break;
-              const f = resolveFieldElement(field);
-              let success;
-              if (resumeFile.generateFromText) {
-                success = FormFiller.attachGeneratedTextAsPdf(f.element, resumeFile.text, resumeFile.fileName);
-              } else {
-                success = await FormFiller.attachFile(f.element, resumeFile.data, resumeFile.fileName);
-              }
-              if (success) {
-                attachedResumeOnce = true;
-                totalFilled++;
-                f.element.style.outline = '2px solid #34a853';
-                f.element.style.outlineOffset = '2px';
-              } else {
-                allFailedFieldLabels.push(f.label || 'Resume/CV');
-              }
-            }
-            await FormFiller.delay(500);
-          }
-        }
+
 
         if (directFields.length > 0) {
           updateStatus(`Pass ${pass}: Filling ${directFields.length} profile fields...`, pass === 1 ? 40 : 85);
@@ -700,24 +730,48 @@
           list.findIndex(candidate => candidate.id === field.id) === index
         );
 
+        // Kick off custom Q&A and Cover Letter generation in parallel to prevent Manifest V3 message timeouts
+        let aiAnswersPromise = Promise.resolve({});
         if (aiQueue.length > 0) {
-          updateStatus(`Pass ${pass}: AI answering ${aiQueue.length} questions...`, pass === 1 ? 55 : 90);
-
           const aiFieldData = aiQueue.map(f => ({
             id: f.id,
             label: f.label,
             fieldType: f.fieldType,
             options: f.options || null
           }));
-
-          const result = await chrome.runtime.sendMessage({
+          aiAnswersPromise = chrome.runtime.sendMessage({
             type: 'FILL_FIELDS',
             payload: { fields: aiFieldData, jobDescription }
+          }).then(res => {
+            if (res?.error) throw new Error(res.error);
+            return res?.answers || {};
+          }).catch(err => {
+            console.error('[JobAutoFill] Custom Q&A failed:', err);
+            return {};
           });
+        }
 
-          if (result.error) throw new Error(result.error);
-          const aiAnswers = result.answers || {};
+        let coverLetterPromise = Promise.resolve(null);
+        if (coverLetterFields.length > 0) {
+          updateStatus('Generating cover letter...', 90);
+          coverLetterPromise = chrome.runtime.sendMessage({
+            type: 'GENERATE_COVER_LETTER',
+            payload: {
+              jobDescription,
+              companyName: jobInfo.company,
+              roleTitle: jobInfo.title
+            }
+          }).then(res => res?.coverLetter || null).catch(err => {
+            console.error('[JobAutoFill] Cover letter generation failed:', err);
+            return null;
+          });
+        }
 
+        // Wait for both parallel requests to complete
+        const [aiAnswers, coverLetter] = await Promise.all([aiAnswersPromise, coverLetterPromise]);
+
+        // 8. Fill custom questions / AI answers
+        if (aiQueue.length > 0) {
           updateStatus(`Pass ${pass}: Filling AI answers...`, pass === 1 ? 70 : 95);
 
           for (const field of aiQueue) {
@@ -760,40 +814,31 @@
           }
         }
 
-        // 9. Generate and attach cover letter (only pass 1 usually, unless appeared later)
-        if (coverLetterFields.length > 0) {
-          updateStatus('Generating cover letter...', 90);
-          const clResult = await chrome.runtime.sendMessage({
-            type: 'GENERATE_COVER_LETTER',
-            payload: {
-              jobDescription,
-              companyName: jobInfo.company,
-              roleTitle: jobInfo.title
+        // 9. Attach / fill cover letter (Only on Pass 1 to prevent regeneration & overwrite loops)
+        if (pass === 1 && coverLetterFields.length > 0 && coverLetter) {
+          const applicant = profileData.profile.fullName || 'Applicant';
+          for (const field of coverLetterFields) {
+            const resolved = resolveFieldElement(field);
+            let success;
+            if (resolved.fieldType === 'file') {
+              const fileName = `${applicant.replace(/\s+/g, '_')}_Cover_Letter.pdf`;
+              success = FormFiller.attachGeneratedTextAsPdf(
+                resolved.element, coverLetter, fileName
+              );
+            } else {
+              success = await FormFiller.fillField(resolved.element, coverLetter, resolved.fieldType);
             }
-          });
 
-          if (clResult?.coverLetter) {
-            const applicant = profileData.profile.fullName || 'Applicant';
-            for (const field of coverLetterFields) {
-              const resolved = resolveFieldElement(field);
-              let success;
-              if (resolved.fieldType === 'file') {
-                success = FormFiller.attachCoverLetterAsFile(
-                  resolved.element, clResult.coverLetter, applicant
-                );
-              } else {
-                success = await FormFiller.fillField(resolved.element, clResult.coverLetter, resolved.fieldType);
-              }
-
-              const highlightTarget = FormFiller.getComboboxInteractTarget(resolved.element) || resolved.element;
-              if (success) {
-                totalFilled++;
-                highlightTarget.style.outline = '2px solid #34a853';
-              } else {
-                allFailedFieldLabels.push(resolved.label);
-              }
+            const highlightTarget = FormFiller.getComboboxInteractTarget(resolved.element) || resolved.element;
+            if (success) {
+              totalFilled++;
+              highlightTarget.style.outline = '2px solid #34a853';
+            } else {
+              allFailedFieldLabels.push(resolved.label);
             }
           }
+          // Display the cover letter preview panel so the user can see what was generated & attached
+          showCoverLetterPreview(coverLetter);
         }
 
         totalFieldsAttempted += fileFields.length + directFields.length + aiQueue.length + coverLetterFields.length;
@@ -841,21 +886,43 @@
         }
       }
 
-      // Attach resume at the very end on SmartRecruiters to avoid auto-parser race conditions
-      if (isSmartRecruiters) {
-        const fileFields = handler.getFields().filter(f => getFieldPurpose(f) === 'resumeFile');
-        if (fileFields.length > 0) {
-          updateStatus('Attaching resume...', 98);
-          const resumeFile = await chrome.runtime.sendMessage({ type: 'GET_RESUME_FILE' });
-          if (resumeFile) {
-            const f = resolveFieldElement(fileFields[0]);
-            if (resumeFile.generateFromText) {
-               await FormFiller.attachGeneratedTextAsPdf(f.element, resumeFile.text, resumeFile.fileName);
-            } else {
-               await FormFiller.attachFile(f.element, resumeFile.data, resumeFile.fileName);
-            }
-            await FormFiller.delay(1000); // let upload commit
+      // Attach resume at the very end on ALL portals to avoid auto-parser race conditions
+      let resumeFileEl = null;
+      const allFiles = FormFiller.querySelectorAllDeep('input[type="file"]');
+      if (allFiles.length > 0) {
+        // Prioritize inputs that have resume/cv in their name or id or container
+        resumeFileEl = allFiles.find(el => {
+          const nameOrId = (el.id || el.name || '').toLowerCase();
+          if (/\bresume\b|\bcv\b/.test(nameOrId)) return true;
+          const container = el.closest('.field, .form-group, .form-field, [class*="group"], [class*="field"], [class*="question"]');
+          if (container && /\bresume\b|\bcv\b/.test(container.textContent.toLowerCase())) return true;
+          return false;
+        });
+        
+        // Fallback: first file input that isn't cover letter
+        if (!resumeFileEl) {
+          resumeFileEl = allFiles.find(el => {
+            const nameOrId = (el.id || el.name || '').toLowerCase();
+            return !/\bcover_?letter\b/.test(nameOrId);
+          });
+        }
+        
+        // Final fallback: first file input
+        if (!resumeFileEl) {
+          resumeFileEl = allFiles[0];
+        }
+      }
+
+      if (resumeFileEl) {
+        updateStatus('Attaching resume...', 98);
+        const resumeFile = await chrome.runtime.sendMessage({ type: 'GET_RESUME_FILE' });
+        if (resumeFile) {
+          if (resumeFile.generateFromText) {
+             await FormFiller.attachGeneratedTextAsPdf(resumeFileEl, resumeFile.text, resumeFile.fileName);
+          } else {
+             await FormFiller.attachFile(resumeFileEl, resumeFile.data, resumeFile.fileName);
           }
+          await FormFiller.delay(1000); // let upload commit
         }
       }
 
@@ -886,6 +953,8 @@
       if (window === window.top) {
         showError(message.message);
       }
+    } else if (message.type === 'SHOW_COVER_LETTER_PREVIEW') {
+      showCoverLetterPreview(message.coverLetter);
     }
     return true;
   });
@@ -922,17 +991,37 @@
   // Initialize: show FAB if this looks like a job application page
   function init() {
     const url = window.location.href;
+
+    // Always start LinkedIn button injection poller on linkedin.com
+    if (url.includes('linkedin.com')) {
+      setInterval(injectLinkedInExtractButton, 1000);
+    }
+
     const isJobSite = /ashbyhq\.com|greenhouse\.io|lever\.co|myworkdayjobs\.com|workday\.com|linkedin\.com\/jobs|icims\.com|taleo\.net|careers|jobs|apply|application/i.test(url);
 
     if (isJobSite) {
       createFAB();
       mutationObserver.observe(document.body, { childList: true, subtree: true });
-
-      // Periodically check for LinkedIn job action containers to inject inline button
-      if (url.includes('linkedin.com')) {
-        setInterval(injectLinkedInExtractButton, 1000);
-      }
     }
+
+    // Monitor URL changes on Single Page Applications (SPAs) like LinkedIn
+    let lastUrl = url;
+    setInterval(() => {
+      const currentUrl = window.location.href;
+      if (currentUrl !== lastUrl) {
+        lastUrl = currentUrl;
+        
+        // Re-evaluate FAB showing
+        const isJob = /ashbyhq\.com|greenhouse\.io|lever\.co|myworkdayjobs\.com|workday\.com|linkedin\.com\/jobs|icims\.com|taleo\.net|careers|jobs|apply|application/i.test(currentUrl);
+        if (isJob) {
+          if (!fab) createFAB();
+          mutationObserver.disconnect();
+          mutationObserver.observe(document.body, { childList: true, subtree: true });
+        } else {
+          if (fab) { fab.remove(); fab = null; }
+        }
+      }
+    }, 1000);
   }
 
   function injectLinkedInExtractButton() {
@@ -1024,6 +1113,73 @@
     // Always update state if it's not currently extracting
     if (!btn.innerText.includes('Extracting')) {
       updateButtonState(btn);
+    }
+  }
+
+  function showCoverLetterPreview(coverLetterText) {
+    const existing = document.getElementById('clyde-cover-letter-preview-panel');
+    if (existing) existing.remove();
+
+    const panel = document.createElement('div');
+    panel.id = 'clyde-cover-letter-preview-panel';
+    panel.style.position = 'fixed';
+    panel.style.bottom = '20px';
+    panel.style.right = '20px';
+    panel.style.width = '380px';
+    panel.style.maxHeight = '500px';
+    panel.style.backgroundColor = 'rgba(15, 23, 42, 0.75)';
+    panel.style.backdropFilter = 'blur(12px)';
+    panel.style.webkitBackdropFilter = 'blur(12px)';
+    panel.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+    panel.style.borderRadius = '12px';
+    panel.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.4)';
+    panel.style.zIndex = '999999';
+    panel.style.display = 'flex';
+    panel.style.flexDirection = 'column';
+    panel.style.fontFamily = 'Inter, system-ui, -apple-system, sans-serif';
+    panel.style.overflow = 'hidden';
+
+    panel.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background-color: rgba(30, 41, 59, 0.5); color: #ffffff; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+        <span style="font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; color: #38bdf8;">
+          <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h12zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2z"/>
+            <path d="M4 4h8v1H4V4zm0 2h8v1H4V6zm0 2h8v1H4V8zm0 2h4v1H4v-1z"/>
+          </svg>
+          Tailored Cover Letter
+        </span>
+        <button id="clyde-cl-close-btn" style="background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; transition: color 0.2s; line-height: 1;">
+          ✕
+        </button>
+      </div>
+      <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+        <textarea id="clyde-cl-textarea" style="width: 100%; height: 280px; padding: 12px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; font-size: 13px; line-height: 1.5; color: #f1f5f9; resize: none; font-family: inherit; outline: none; box-sizing: border-box; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);">${coverLetterText}</textarea>
+        <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
+          <button id="clyde-cl-copy-btn" style="padding: 6px 14px; background-color: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; font-size: 12px; font-weight: 600; color: #cbd5e1; cursor: pointer; transition: background 0.2s, color 0.2s;">
+            Copy
+          </button>
+          <span style="font-size: 12px; font-weight: 600; color: #4ade80; display: flex; align-items: center; gap: 4px;">
+            ✓ Tailored and Attached
+          </span>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    const closeBtn = document.getElementById('clyde-cl-close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => panel.remove());
+    }
+
+    const copyBtn = document.getElementById('clyde-cl-copy-btn');
+    const textarea = document.getElementById('clyde-cl-textarea');
+    if (copyBtn && textarea) {
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(textarea.value);
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => copyBtn.textContent = 'Copy', 2000);
+      });
     }
   }
 

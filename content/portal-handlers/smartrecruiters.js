@@ -347,8 +347,9 @@ PortalHandlers.register({
       // (This bypasses Content Security Policy without injecting inline code blocks)
       const script = document.createElement('script');
       script.src = chrome.runtime.getURL('content/portal-handlers/smartrecruiters-inject.js');
+      script.setAttribute('data-op', 'date');
       script.setAttribute('data-temp-id', tempId);
-      script.setAttribute('data-date-val', formattedDate);
+      script.setAttribute('data-val', formattedDate);
       (document.head || document.documentElement).appendChild(script);
       script.remove();
 

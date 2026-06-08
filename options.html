@@ -6,12 +6,12 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f5f5f5;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: #0f172a;
       display: flex;
       justify-content: center;
       padding: 48px 16px;
-      color: #1a1a2e;
+      color: #f8fafc;
     }
     .container {
       width: 100%;
@@ -21,70 +21,79 @@
       gap: 24px;
     }
     .card {
-      background: #fff;
+      background: rgba(30, 41, 59, 0.45);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 12px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
       padding: 32px;
       width: 100%;
     }
-    h1 { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
-    h2 { font-size: 18px; font-weight: 600; margin-bottom: 16px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
-    p.sub { font-size: 13px; color: #666; margin-bottom: 24px; line-height: 1.5; }
+    h1 { font-size: 24px; font-weight: 700; margin-bottom: 6px; color: #38bdf8; }
+    h2 { font-size: 18px; font-weight: 600; margin-bottom: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 8px; color: #38bdf8; }
+    p.sub { font-size: 13px; color: #94a3b8; margin-bottom: 24px; line-height: 1.5; }
     
     .field { margin-bottom: 16px; }
     .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .full-width { grid-column: 1 / -1; }
     
-    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #cbd5e1; }
     
     input[type="text"], input[type="password"], input[type="email"], input[type="tel"], input[type="number"], input[type="url"], select, textarea {
       width: 100%;
       padding: 10px 12px;
-      border: 1px solid #d1d5db;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 7px;
       font-size: 14px;
+      color: #f1f5f9;
       outline: none;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, box-shadow 0.2s;
       font-family: inherit;
     }
-    input:focus, select:focus, textarea:focus { border-color: #fec111; }
+    input:focus, select:focus, textarea:focus { 
+      border-color: #38bdf8; 
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
     
     .input-row { display: flex; gap: 10px; }
     .input-row input { flex: 1; }
     
     button {
       padding: 10px 20px;
-      background: #fec111;
-      color: #111827;
+      background: #0284c7;
+      color: #ffffff;
       border: none;
       border-radius: 7px;
       font-size: 14px;
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: background 0.2s, transform 0.1s;
     }
-    button:hover { background: #ca8a04; color: #fff; }
-    button.secondary { background: #fff; color: #ca8a04; border: 1px solid #fec111; }
-    button.secondary:hover { background: #fefce8; color: #ca8a04; }
-    button.danger { background: #fff; color: #ef4444; border: 1px solid #fecaca; }
-    button.danger:hover { background: #fef2f2; }
+    button:hover { background: #0ea5e9; }
+    button:active { transform: scale(0.98); }
+    button.secondary { background: rgba(255, 255, 255, 0.05); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+    button.secondary:hover { background: rgba(56, 189, 248, 0.1); }
+    button.danger { background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+    button.danger:hover { background: rgba(239, 68, 68, 0.2); }
     
     .upload-area {
-      border: 2px dashed #d1d5db;
+      border: 2px dashed rgba(255, 255, 255, 0.15);
       border-radius: 8px;
       padding: 32px;
       text-align: center;
       cursor: pointer;
       transition: border-color 0.2s, background 0.2s;
-      background: #f9fafb;
+      background: rgba(15, 23, 42, 0.3);
     }
-    .upload-area:hover { border-color: #fec111; background: #fefce8; }
-    .upload-area.has-file { border-style: solid; border-color: #10b981; background: #ecfdf5; }
+    .upload-area:hover { border-color: #38bdf8; background: rgba(56, 189, 248, 0.05); }
+    .upload-area.has-file { border-style: solid; border-color: #4ade80; background: rgba(74, 222, 128, 0.05); }
     
     .status { font-size: 13px; font-weight: 600; margin-top: 8px; min-height: 20px;}
-    .status.success { color: #16a34a; }
-    .status.error { color: #dc2626; }
-    .status.loading { color: #ca8a04; }
+    .status.success { color: #4ade80; }
+    .status.error { color: #f87171; }
+    .status.loading { color: #fbbf24; }
     
     .qa-pair { display: flex; gap: 10px; margin-bottom: 12px; align-items: flex-start; }
     .qa-pair input { width: 30%; }
@@ -92,8 +101,9 @@
     .qa-pair button { padding: 10px 14px; }
     
     .actions { display: flex; align-items: center; justify-content: space-between; margin-top: 32px; }
-    .hint { margin-top: 10px; font-size: 12px; color: #888; line-height: 1.6; }
-    .hint a { color: #ca8a04; }
+    .hint { margin-top: 10px; font-size: 12px; color: #94a3b8; line-height: 1.6; }
+    .hint a { color: #38bdf8; text-decoration: none; }
+    .hint a:hover { text-decoration: underline; }
     .hidden { display: none !important; }
   </style>
 </head>

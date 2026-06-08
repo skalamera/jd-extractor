@@ -59,6 +59,10 @@ function getTextareaContextLabel(el) {
 }
 
 function extractFieldInfo(element) {
+  // Completely skip any elements created by the extension itself (e.g., overlay, preview panel)
+  if (element.closest?.('#clyde-cover-letter-preview-panel, #job-autofill-panel, #job-autofill-container, [id^="clyde-"], [id^="job-autofill-"]')) {
+    return null;
+  }
   const id = element.id || element.name || `field_${Math.random().toString(36).slice(2, 8)}`;
   let label = getFieldLabel(element);
   const type = element.type || element.tagName.toLowerCase();
@@ -218,7 +222,7 @@ function normalizeFieldText(text) {
     .trim();
 }
 
-function classifyFieldPurpose(label, options = [], fieldType = null) {
+function classifyFieldPurpose(label, options = [], fieldType = null, element = null) {
   const l = normalizeFieldText(label);
   const optionsText = normalizeFieldText(Array.isArray(options) ? options.join(' ') : '');
   const bareLabel = l.replace(/\*+$/g, '').trim();
@@ -230,6 +234,26 @@ function classifyFieldPurpose(label, options = [], fieldType = null) {
     if (/\boptional\b/.test(l) && /\bupload\b/.test(l)) return 'coverLetter';
     if (/\badditional\b|\bsupplemental\b/.test(l) && /\b(upload|file|document)\b/.test(l) && !/\bresume\b|\bcv\b/.test(l)) {
       return 'coverLetter';
+    }
+    // Greenhouse whitelabel / duplicate label container bypass
+    if (element) {
+      const nameOrId = (element.id || element.name || '').toLowerCase();
+      if (/\bcover_?letter\b/.test(nameOrId)) {
+        return 'coverLetter';
+      }
+      if (/\bresume\b|\bcv\b/.test(nameOrId)) {
+        return 'resumeFile';
+      }
+    }
+    const container = element && element.closest?.('.field, .form-group, .form-field, [class*="group"], [class*="field"], [class*="question"]');
+    if (container) {
+      const containerText = container.textContent.toLowerCase();
+      if (/\bcover\s*letter\b/.test(containerText)) {
+        return 'coverLetter';
+      }
+      if (/\bresume\b|\bcv\b/.test(containerText)) {
+        return 'resumeFile';
+      }
     }
     if (/\bresume\b|\bcv\b|\bcurriculum vitae\b|\bcurriculum\b/.test(l)) return 'resumeFile';
     if (/\battach\b|\bupload\b|\bchoose\s+(a\s+)?file\b|\bbrowse\b|\bdrop\s+it\s+here\b/.test(l)) return 'resumeFile';
@@ -253,7 +277,7 @@ function classifyFieldPurpose(label, options = [], fieldType = null) {
 
   // For choice fields, option text is often more reliable than a mislabeled container.
   if (optionsText) {
-    if (/\b(she\/her|he\/him|they\/them|prefer not to answer)\b/.test(optionsText)) return 'pronouns';
+    if (/\b(she\/her|he\/him|they\/them)\b/.test(optionsText)) return 'pronouns';
     if (/\b(i acknowledge|privacy policy)\b/.test(optionsText)) return 'acknowledgement';
     if (/\b(can work for any employer|can work for current employer|seeking work authorization)\b/.test(optionsText)) return 'workAuthorizationStatus';
     if (/\bi am local to the location hub\b/.test(optionsText)) return 'relocation';
@@ -274,7 +298,7 @@ function classifyFieldPurpose(label, options = [], fieldType = null) {
   if (/\b(twitter|x\.com|fka\s*twitter)\b/.test(l)) return 'twitterUrl';
 
   // Standard questions
-  if (/\bpronouns?\b/.test(l) || /\b(she\/her|he\/him|they\/them|prefer not to answer)\b/.test(optionsText)) return 'pronouns';
+  if (/\bpronouns?\b/.test(l) || /\b(she\/her|he\/him|they\/them)\b/.test(optionsText)) return 'pronouns';
   if (/\b(acknowledge|acknowledgement|acknowledgments|applicant privacy policy|privacy policy)\b/.test(l)) return 'acknowledgement';
   // Lever essay under a "Work authorization status" heading — must win over the header keyword.
   if (/\bwill you\b.*\brequire\b.*\bsponsorship\b/.test(l)) return 'sponsorship';

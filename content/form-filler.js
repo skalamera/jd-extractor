@@ -310,10 +310,10 @@ const FormFiller = {
     }
 
     if (normalizedAnswer.length > 4 && (
-      normalizedLabel.includes(normalizedAnswer) ||
-      normalizedOptionValue.includes(normalizedAnswer) ||
-      normalizedAnswer.includes(normalizedLabel) ||
-      normalizedAnswer.includes(normalizedOptionValue)
+      (normalizedLabel && normalizedLabel.length > 2 && normalizedLabel.includes(normalizedAnswer)) ||
+      (normalizedOptionValue && normalizedOptionValue.length > 2 && normalizedOptionValue.includes(normalizedAnswer)) ||
+      (normalizedLabel && normalizedLabel.length > 2 && normalizedAnswer.includes(normalizedLabel)) ||
+      (normalizedOptionValue && normalizedOptionValue.length > 2 && normalizedAnswer.includes(normalizedOptionValue))
     )) {
       return true;
     }
@@ -491,6 +491,14 @@ const FormFiller = {
 
   async fillTextInput(element, value, purpose = '', label = '') {
     const interact = this.getComboboxInteractTarget(element);
+    const inputLabel = (element.getAttribute('aria-label') || element.placeholder || element.id || element.name || label || '').toLowerCase();
+
+    // Auto-default empty Month/Day fields in date pickers to '01' to prevent invalid date errors
+    const isDayField = /\b(day|dd)\b/i.test(inputLabel) && !/birthday/i.test(inputLabel);
+    const isMonthField = /\b(month|mm)\b/i.test(inputLabel) && !/birthday/i.test(inputLabel);
+    if ((isDayField || isMonthField) && (!value || String(value).trim() === '')) {
+      value = '01';
+    }
     
     // Phone number cleaning & formatting
     const isPhone = purpose === 'phone' ||
@@ -520,6 +528,23 @@ const FormFiller = {
         cleaned = digitsOnly;
       }
       value = cleaned;
+
+      // SmartRecruiters main-world phone injector bypass
+      const isSmartRecruiters = /smartrecruiters/i.test(location.href) || 
+                                !!document.querySelector('sf-root, sf-page, spl-root, spl-page, [class*="oneclick-ui"], [data-testid*="oneclick"]');
+      if (isSmartRecruiters) {
+        const tempId = 'clyde-' + Math.random().toString(36).substring(2, 9);
+        element.setAttribute('data-clyde-temp', tempId);
+
+        const script = document.createElement('script');
+        script.src = chrome.runtime.getURL('content/portal-handlers/smartrecruiters-inject.js');
+        script.setAttribute('data-op', 'phone');
+        script.setAttribute('data-temp-id', tempId);
+        script.setAttribute('data-val', value);
+        (document.head || document.documentElement).appendChild(script);
+        script.remove();
+        return true;
+      }
     }
     
     // Programmatic flatpickr date setter support
@@ -659,6 +684,65 @@ const FormFiller = {
       return false;
     }
     
+    if (isDate) {
+      console.log(`[JobAutoFill] Setting date value in one shot: "${value}" for element`, element);
+      
+      // Clean up the date string: if it's "YYYY-MM-DD" convert to "MM/DD/YYYY", if "YYYY-MM" to "MM/YYYY"
+      let dateVal = String(value).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) {
+        const [y, m, d] = dateVal.split('-');
+        if (inputLabel.includes('yyyy') && !inputLabel.includes('dd') && !inputLabel.includes('day')) {
+          dateVal = `${m}/${y}`;
+        } else {
+          dateVal = `${m}/${d}/${y}`;
+        }
+      } else if (/^\d{4}-\d{2}$/.test(dateVal)) {
+        const [y, m] = dateVal.split('-');
+        dateVal = `${m}/${y}`;
+      }
+      
+      // Focus and set value directly
+      try { interact.focus(); } catch(e){}
+      
+      const setVal = (el, val) => {
+        const isTextArea = el instanceof HTMLTextAreaElement;
+        const isInput = el instanceof HTMLInputElement;
+        const proto = isTextArea ? HTMLTextAreaElement.prototype : (isInput ? HTMLInputElement.prototype : Object.getPrototypeOf(el));
+        const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+        if (nativeSetter) {
+          try { nativeSetter.call(el, val); } catch { el.value = val; }
+        } else {
+          el.value = val;
+        }
+        el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
+      };
+      
+      setVal(interact, dateVal);
+      if (element !== interact) {
+        setVal(element, dateVal);
+      }
+      
+      // Trigger React onChange
+      const triggerReactChange = (el) => {
+        const reactPropsKey = Object.keys(el).find(key => key.startsWith('__reactProps$') || key.startsWith('__reactEventHandlers$'));
+        if (reactPropsKey && el[reactPropsKey] && el[reactPropsKey].onChange) {
+          try {
+            el[reactPropsKey].onChange({ target: el, currentTarget: el });
+          } catch (e) {}
+        }
+      };
+      triggerReactChange(interact);
+      if (element !== interact) triggerReactChange(element);
+      
+      try {
+        interact.blur();
+        if (element !== interact) element.blur();
+      } catch (e) {}
+      await this.delay(100);
+      return true;
+    }
+
     // Direct filling logic for non-typeahead inputs (First Name, Phone Number, etc.)
     await this.typeValueIncrementally(element, value);
 
@@ -714,9 +798,10 @@ const FormFiller = {
       if (listbox && this.isVisibleOption(listbox)) return listbox;
       current = current.parentNode || current.host;
     }
-    // Search globally in document
-    const listboxes = this.querySelectorAllDeep('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"], sf-typeahead, spl-overlay, sf-overlay, sf-list-box, spl-list-box, sf-typeahead-items');
-    return listboxes.find(lb => this.isVisibleOption(lb)) || null;
+    // Search globally using native querySelector (blazingly fast fallback inside loops)
+    const globalLb = document.querySelector('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"], sf-typeahead, spl-overlay, sf-overlay, sf-list-box, spl-list-box, sf-typeahead-items');
+    if (globalLb && this.isVisibleOption(globalLb)) return globalLb;
+    return null;
   },
 
   async waitForOptions(input, timeoutMs = 2500) {
