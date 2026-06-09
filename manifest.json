@@ -42,7 +42,8 @@
         "icons/sidebar_ghost_icon.svg",
         "popup.html",
         "popup.js",
-        "icons/popup_ui_header.svg"
+        "icons/popup_ui_header.svg",
+        "icons/clyde_apply.svg"
       ],
       "matches": ["<all_urls>"]
     }

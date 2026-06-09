@@ -146,8 +146,25 @@ PortalHandlers.register({
     return { title, company };
   },
 
+  async _waitForSettle() {
+    console.log('[Workday Debug] Waiting for page loading and framework elements to settle...');
+    // 1. Wait for any loading spinner or overlay to disappear
+    for (let i = 0; i < 20; i++) {
+      const loader = document.querySelector('[data-automation-id="loadingOverlay"], .workday-loading, [class*="loadingOverlay"], [class*="loading-overlay"], .loading-spinner, .spinner');
+      if (!loader || window.getComputedStyle(loader).display === 'none') {
+        break;
+      }
+      console.log('[Workday Debug] Loader/spinner visible, waiting 500ms...');
+      await FormFiller.delay(500);
+    }
+    // 2. Extra safety buffer to let React state load and buttons render
+    await FormFiller.delay(2000);
+    console.log('[Workday Debug] Page settled. Ready to autofill.');
+  },
+
   async customFill(profileData) {
     console.log('[Workday Debug] customFill started with Linear Sectioning!');
+    await this._waitForSettle();
     this._profileData = profileData;
     const structured = profileData?.structured || {};
     const profile = profileData?.profile || {};
@@ -252,7 +269,7 @@ PortalHandlers.register({
           try {
             console.log(`[Workday Debug] Triggering framework-safe click on "Add Another" button, click count=${k+1}`);
             await this._safeClick(addBtn);
-            await FormFiller.delay(1500); // Wait for dynamic React card injection and animation
+            await FormFiller.delay(2500); // Wait for dynamic React card injection and animation
           } catch (e) {
             console.warn(`[Workday] Click failed on "Add Another" button:`, e);
           }
@@ -815,15 +832,18 @@ PortalHandlers.register({
       const headers = FormFiller.querySelectorAllDeep(selector, document);
       for (const h of headers) {
         const txt = (h.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
-        if (txt === 'my experience' || txt.length > 40) continue;
+        if (txt === 'my experience' || txt.length > 50) continue;
 
-        if (/work\s+experience|^experience$/i.test(txt) && !expHeader) {
+        // Clean text by stripping common suffixes like "(optional)"
+        const cleanTxt = txt.replace(/\s*\(\s*optional\s*\)\s*$/i, '').trim();
+
+        if ((/work\s+experience|^experience$|work\s+history/i.test(cleanTxt)) && !expHeader) {
           expHeader = h;
-        } else if (/^education$/i.test(txt) && !eduHeader) {
+        } else if (/^education$/i.test(cleanTxt) && !eduHeader) {
           eduHeader = h;
-        } else if (/^certifications?$/i.test(txt) && !certHeader) {
+        } else if (/^certifications?$/i.test(cleanTxt) && !certHeader) {
           certHeader = h;
-        } else if (/^skills$|^skills\s+and\s+languages$/i.test(txt) && !skillsHeader) {
+        } else if (/^skills$|^skills\s+and\s+languages$|^skills\s+and\s+strengths$/i.test(cleanTxt) && !skillsHeader) {
           skillsHeader = h;
         }
       }

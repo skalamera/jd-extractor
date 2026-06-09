@@ -109,66 +109,131 @@ if (btnGetJd) {
     btnGetJd.textContent = "Extracting...";
 
     try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tabs || tabs.length === 0) throw new Error("No active tab found");
-      const tab = tabs[0];
+      const isSidebar = new URLSearchParams(window.location.search).get('sidebar') === 'true';
 
-      let extractedText = "";
-      
-      // 1. Try sending a message to the content script first (best for sidebar iframe context)
-      try {
-        const response = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_JD_FROM_PAGE' });
-        extractedText = response?.text || "";
-      } catch (err) {
-        console.log("[Clyde Popup] Content script extraction message failed, falling back to executeScript:", err);
-      }
-
-      // 2. Fallback to executeScript if message failed or returned empty
-      if (!extractedText) {
-        const results = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: () => {
-            let textToExtract = document.body.innerText;
-            const selectors = [
-              '.jobs-description__content',
-              '.jobs-search__job-details--container',
-              '.job-description', 
-              '#job-description',
-              '[data-automation-id="jobPostingDescription"]',
-              '[data-automation-id="job-posting-description"]'
-            ];
-            for (const sel of selectors) {
-              const el = document.querySelector(sel);
-              if (el && el.innerText && el.innerText.trim().length > 200) {
-                textToExtract = el.innerText;
-                break;
-              }
+      if (isSidebar) {
+        // Use 100% reliable postMessage to parent host page to bypass all MV3 scripting / tab query restrictions!
+        const handleResponse = async (event) => {
+          if (event.data && event.data.type === 'CLYDE_EXTRACT_RESPONSE') {
+            window.removeEventListener('message', handleResponse);
+            const text = event.data.text;
+            if (text) {
+              await chrome.runtime.sendMessage({
+                action: "extract-page",
+                text: text,
+                url: event.data.url
+              });
+              btnGetJd.textContent = "Extracted \u2713";
+            } else {
+              btnGetJd.textContent = "Error!";
+              alert("No job description text found on page.");
             }
-            return textToExtract;
+            setTimeout(() => {
+              btnGetJd.disabled = false;
+              btnGetJd.textContent = originalText;
+            }, 3000);
           }
-        });
-        extractedText = results && results[0] && results[0].result;
-      }
+        };
+        window.addEventListener('message', handleResponse);
+        window.parent.postMessage({ type: 'CLYDE_EXTRACT_REQUEST' }, '*');
+        
+        // Timeout safety fallback just in case
+        setTimeout(() => {
+          if (btnGetJd.textContent === "Extracting...") {
+            window.removeEventListener('message', handleResponse);
+            btnGetJd.disabled = false;
+            btnGetJd.textContent = originalText;
+          }
+        }, 5000);
 
-      if (extractedText) {
-        await chrome.runtime.sendMessage({
-          action: "extract-page",
-          tabId: tab.id,
-          text: extractedText,
-          url: tab.url
-        });
-        btnGetJd.textContent = "Extracted \u2713";
       } else {
-        btnGetJd.textContent = "Error: No text found";
+        const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (!tabs || tabs.length === 0) throw new Error("No active tab found");
+        const tab = tabs[0];
+        let extractedText = "";
+        
+        // 1. Try sending a message to the content script first
+        try {
+          const response = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_JD_FROM_PAGE' });
+          extractedText = response?.text || "";
+        } catch (err) {
+          console.log("[Clyde Popup] Content script extraction message failed:", err);
+        }
+
+        // 2. Fallback to executeScript if message failed
+        if (!extractedText) {
+          try {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId: tab.id },
+              func: () => {
+                const clone = document.body.cloneNode(true);
+                const stripTags = ['script', 'style', 'noscript', 'code', 'iframe', 'header', 'footer', 'nav'];
+                for (const tag of stripTags) {
+                  clone.querySelectorAll(tag).forEach(el => el.remove());
+                }
+
+                let textToExtract = clone.innerText || "";
+                const selectors = [
+                  '.show-more-less-html__markup',
+                  '.jobs-box__html-content',
+                  '.jobs-description-content__text',
+                  '.jobs-description__content',
+                  '.jobs-search__job-details--container',
+                  '.jobs-description',
+                  '.job-description', 
+                  '#job-description',
+                  '[data-automation-id="jobPostingDescription"]',
+                  '[data-automation-id="job-posting-description"]'
+                ];
+                for (const sel of selectors) {
+                  const el = document.querySelector(sel);
+                  if (el && el.innerText && el.innerText.trim().length > 200) {
+                    const elClone = el.cloneNode(true);
+                    for (const tag of stripTags) {
+                      elClone.querySelectorAll(tag).forEach(e => e.remove());
+                    }
+                    if (elClone.innerText && elClone.innerText.trim().length > 100) {
+                      textToExtract = elClone.innerText;
+                      break;
+                    }
+                  }
+                }
+                return textToExtract;
+              }
+            });
+            extractedText = results && results[0] && results[0].result;
+          } catch (execErr) {
+            console.log("[Clyde Popup] executeScript extraction fallback failed:", execErr);
+          }
+        }
+
+        if (extractedText) {
+          await chrome.runtime.sendMessage({
+            action: "extract-page",
+            tabId: tab.id,
+            text: extractedText,
+            url: tab.url
+          });
+          btnGetJd.textContent = "Extracted \u2713";
+        } else {
+          btnGetJd.textContent = "Error: No text found";
+        }
+        setTimeout(() => {
+          btnGetJd.disabled = false;
+          btnGetJd.textContent = originalText;
+        }, 3000);
       }
     } catch (e) {
       console.error("[Clyde Popup] Extraction failed:", e);
-      btnGetJd.textContent = "Error!";
-    } finally {
-      setTimeout(() => {
-        btnGetJd.disabled = false;
-        btnGetJd.textContent = originalText;
-      }, 3000);
+      if (e.message && e.message.includes("Extension context invalidated")) {
+        btnGetJd.textContent = "Please refresh page!";
+        alert("Clyde has been reloaded. Please refresh the page to reconnect Clyde.");
+      } else {
+        btnGetJd.textContent = "Error!";
+        alert(e.message || "Extraction failed.");
+      }
+      btnGetJd.disabled = false;
+      btnGetJd.textContent = originalText;
     }
   });
 }
@@ -503,7 +568,6 @@ function createClipElement(clip, isActive) {
       ${(currentTab === 'tracker' || currentTab === 'archived') ? `<button class="btn-action btn-prep" data-gen="prep" data-idx="${idx}" title="Generate STAR behavioral interview stories">Interview Prep</button>` : ''}
       <button class="btn-action btn-linkedin" data-gen="network" data-idx="${idx}" title="Copy LinkedIn outreach message">LinkedIn Message</button>
       <button class="btn-action btn-clyde" data-clyde-sync="${idx}" title="Sync job description to Clyde Desktop App" data-clyde-idx="${idx}">Sync to&nbsp;<span style="font-weight:700;">Cockpit</span></button>
-      ${(currentTab !== 'tracker' && currentTab !== 'archived') ? `<button class="btn-action primary" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);" data-autofill="${idx}" title="Auto-fill application with AI">AI Apply</button>` : ''}
     </div>
     <div class="gen-feedback" data-fb="${idx}"></div>
   `;
@@ -511,18 +575,75 @@ function createClipElement(clip, isActive) {
 }
 
 function load() {
-  chrome.storage.local.get({ clips: [], activeClipIdx: null, resumeFile: null, activeResumeText: null, activeResumeName: null }, (data) => {
-    allClips = data.clips;
+  if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.storage || !chrome.storage.local) {
+    console.warn("[Clyde Popup] Extension context is invalidated or chrome APIs are unavailable.");
+    return;
+  }
+  try {
+    chrome.storage.local.get({
+      clips: [],
+      activeClipIdx: null,
+      resumeFile: null,
+      activeResumeText: null,
+      activeResumeName: null,
+      useTailoredResume: true
+    }, (data) => {
+      if (typeof chrome === 'undefined' || !chrome.runtime || chrome.runtime.lastError) {
+        console.warn("[Clyde Popup] Storage get failed (context might be invalidated):", chrome.runtime?.lastError);
+        return;
+      }
+      allClips = data.clips;
     activeClipIdx = data.activeClipIdx;
     resumeFileName = data.resumeFile ? data.resumeFile.fileName : "None (Upload required)";
     hasActiveTailored = !!data.activeResumeText;
     activeTailoredName = data.activeResumeName || "";
-    
+    const useTailored = data.useTailoredResume !== false;
+
+    // Populates active resume select options
+    const activeResumeSelect = document.getElementById("active-resume-select");
+    const optMasterResume = document.getElementById("opt-master-resume");
+    const optTailoredResume = document.getElementById("opt-tailored-resume");
+
+    if (activeResumeSelect && optMasterResume && optTailoredResume) {
+      optMasterResume.textContent = `Master - ${resumeFileName}`;
+      
+      if (hasActiveTailored) {
+        optTailoredResume.disabled = false;
+        optTailoredResume.textContent = `Tailored - ${activeTailoredName || "Tailored Resume"}`;
+        activeResumeSelect.value = useTailored ? "tailored" : "master";
+      } else {
+        optTailoredResume.disabled = true;
+        optTailoredResume.textContent = "Tailored Resume (Not generated)";
+        activeResumeSelect.value = "master";
+      }
+    }
+
     // Default visibility for clips tab elements
-    resumeIndicator.style.display = currentTab === "clips" ? "flex" : "none";
+    if (resumeIndicator) {
+      resumeIndicator.style.display = currentTab === "clips" ? "flex" : "none";
+    }
+
+    // Populates active cover letter widget
+    const activeClip = (activeClipIdx !== null && allClips[activeClipIdx]) ? allClips[activeClipIdx] : null;
+    const clWidget = document.getElementById("clyde-active-cl-widget");
+    const clTextarea = document.getElementById("clyde-active-cl-textarea");
+
+    if (clWidget && clTextarea) {
+      if (currentTab === "clips" && activeClip && activeClip.coverLetterText) {
+        clWidget.style.display = "flex";
+        if (document.activeElement !== clTextarea) {
+          clTextarea.value = activeClip.coverLetterText;
+        }
+      } else {
+        clWidget.style.display = "none";
+      }
+    }
     
     render();
   });
+  } catch (err) {
+    console.error("[Clyde Popup] Error inside load():", err);
+  }
 }
 
 function save(callback) {
@@ -794,7 +915,7 @@ async function handleAiApply(clipIdx, applyBtn) {
     await new Promise(r => chrome.storage.local.set({ activeClipIdx }, r));
 
     // Tell the content script in the active tab to start filling
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (!tab) throw new Error("No active tab found");
     
     await chrome.tabs.sendMessage(tab.id, { type: 'START_AUTOFILL' });
@@ -974,5 +1095,80 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
     load();
   }
 });
+
+// ── Active Resume & Cover Letter Widget Event Listeners ───────────────────────
+
+const activeResumeSelect = document.getElementById("active-resume-select");
+if (activeResumeSelect) {
+  activeResumeSelect.addEventListener("change", async (e) => {
+    const value = e.target.value;
+    await chrome.storage.local.set({ useTailoredResume: (value === "tailored") });
+    load();
+  });
+}
+
+const clHeader = document.getElementById("clyde-active-cl-header");
+const clBody = document.getElementById("clyde-active-cl-body");
+const clToggleIcon = document.getElementById("clyde-active-cl-toggle-icon");
+if (clHeader && clBody && clToggleIcon) {
+  clHeader.addEventListener("click", () => {
+    const isHidden = clBody.style.display === "none" || !clBody.style.display;
+    clBody.style.display = isHidden ? "flex" : "none";
+    clToggleIcon.style.transform = isHidden ? "rotate(180deg)" : "rotate(0deg)";
+  });
+}
+
+const clCopyBtn = document.getElementById("clyde-active-cl-copy");
+const clTextarea = document.getElementById("clyde-active-cl-textarea");
+if (clCopyBtn && clTextarea) {
+  clCopyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(clTextarea.value);
+      clCopyBtn.textContent = "Copied ✓";
+      setTimeout(() => { clCopyBtn.textContent = "Copy"; }, 2000);
+    } catch (err) {
+      console.error("Failed to copy cover letter:", err);
+    }
+  });
+}
+
+const clDlBtn = document.getElementById("clyde-active-cl-dl");
+if (clDlBtn && clTextarea) {
+  clDlBtn.addEventListener("click", () => {
+    const activeClip = (activeClipIdx !== null && allClips[activeClipIdx]) ? allClips[activeClipIdx] : null;
+    const comp = activeClip ? (activeClip.companyName || "Company") : "Company";
+    const role = activeClip ? (activeClip.jobTitle || "Role") : "Role";
+    const fileName = `${comp.replace(/\s+/g, '_')}_${role.replace(/\s+/g, '_')}_Cover_Letter.txt`;
+    
+    const blob = new Blob([clTextarea.value], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+if (clTextarea) {
+  clTextarea.addEventListener("input", async () => {
+    const activeClip = (activeClipIdx !== null && allClips[activeClipIdx]) ? allClips[activeClipIdx] : null;
+    if (activeClip && activeClipIdx !== null) {
+      activeClip.coverLetterText = clTextarea.value;
+      allClips[activeClipIdx].coverLetterText = clTextarea.value;
+      
+      // Quietly save back to storage
+      await chrome.storage.local.set({ clips: allClips });
+      
+      // Show temporary saved indicator
+      const clStatus = document.getElementById("clyde-active-cl-status");
+      if (clStatus) {
+        clStatus.style.display = "inline";
+        if (window.clSaveTimer) clearTimeout(window.clSaveTimer);
+        window.clSaveTimer = setTimeout(() => { clStatus.style.display = "none"; }, 1500);
+      }
+    }
+  });
+}
 
 load();

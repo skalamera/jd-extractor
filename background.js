@@ -106,9 +106,20 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
            const targetIdx = freshData.clips.findIndex(c => c.savedAt === newClip.savedAt);
            
            if (targetIdx !== -1) {
-              freshData.clips[targetIdx].jobTitle = extracted.title || "Unknown Title";
-              freshData.clips[targetIdx].companyName = extracted.company || "Unknown Company";
-              freshData.clips[targetIdx].location = extracted.location || "Unknown Location";
+              let companyFallback = "Company";
+              if (url) {
+                try {
+                  const host = new URL(url).hostname;
+                  const parts = host.replace(/^www\./i, '').split('.');
+                  if (parts.length > 0) {
+                    companyFallback = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+                  }
+                } catch (e) {}
+              }
+
+              freshData.clips[targetIdx].jobTitle = extracted.title || "Job Title";
+              freshData.clips[targetIdx].companyName = extracted.company || companyFallback;
+              freshData.clips[targetIdx].location = extracted.location || "Location";
               freshData.clips[targetIdx].score = extracted.score || null;
               freshData.clips[targetIdx].archetype = extracted.archetype || "Unknown";
               freshData.clips[targetIdx].salary = extracted.salary || "Unknown";
@@ -210,6 +221,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === "extract-page-from-sidebar") {
+    handleExtractFromSidebar()
+      .then(sendResponse)
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
   if (msg.action === "extract-page-from-content") {
     // Open the popup immediately to preserve the user gesture token
     if (chrome.action && chrome.action.openPopup) {
@@ -237,6 +255,77 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // keep channel open for async response
   }
 });
+
+async function handleExtractFromSidebar() {
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tabs || tabs.length === 0) throw new Error("No active tab found");
+  const tab = tabs[0];
+
+  let extractedText = "";
+
+  // 1. Try sending a message to the content script first
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_JD_FROM_PAGE' });
+    extractedText = response?.text || "";
+  } catch (err) {
+    console.log("[background] Content script extraction message failed:", err);
+  }
+
+  // 2. Fallback to executeScript if message failed
+  if (!extractedText) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          const clone = document.body.cloneNode(true);
+          const stripTags = ['script', 'style', 'noscript', 'code', 'iframe', 'header', 'footer', 'nav'];
+          for (const tag of stripTags) {
+            clone.querySelectorAll(tag).forEach(el => el.remove());
+          }
+
+          let textToExtract = clone.innerText || "";
+          const selectors = [
+            '.show-more-less-html__markup',
+            '.jobs-box__html-content',
+            '.jobs-description-content__text',
+            '.jobs-description__content',
+            '.jobs-search__job-details--container',
+            '.jobs-description',
+            '.job-description', 
+            '#job-description',
+            '[data-automation-id="jobPostingDescription"]',
+            '[data-automation-id="job-posting-description"]'
+          ];
+          for (const sel of selectors) {
+            const el = document.querySelector(sel);
+            if (el && el.innerText && el.innerText.trim().length > 200) {
+              const elClone = el.cloneNode(true);
+              for (const tag of stripTags) {
+                elClone.querySelectorAll(tag).forEach(e => e.remove());
+              }
+              if (elClone.innerText && elClone.innerText.trim().length > 100) {
+                textToExtract = elClone.innerText;
+                break;
+              }
+            }
+          }
+          return textToExtract;
+        }
+      });
+      extractedText = results && results[0] && results[0].result;
+    } catch (execErr) {
+      console.error("[background] executeScript extraction fallback failed:", execErr);
+      throw new Error("Could not extract page content. Please refresh the page and try again.");
+    }
+  }
+
+  if (extractedText) {
+    await handleExtractPage(tab.id, extractedText, tab.url);
+    return { success: true, text: extractedText };
+  } else {
+    throw new Error("No job description text found on page.");
+  }
+}
 
 async function handleExtractPage(tabId, selectedText, url) {
   if (!selectedText) throw new Error("No text found on page.");
@@ -269,9 +358,20 @@ async function handleExtractPage(tabId, selectedText, url) {
        const targetIdx = freshData.clips.findIndex(c => c.savedAt === newClip.savedAt);
        
        if (targetIdx !== -1) {
-          freshData.clips[targetIdx].jobTitle = extracted.title || "Unknown Title";
-          freshData.clips[targetIdx].companyName = extracted.company || "Unknown Company";
-          freshData.clips[targetIdx].location = extracted.location || "Unknown Location";
+          let companyFallback = "Company";
+          if (url) {
+            try {
+              const host = new URL(url).hostname;
+              const parts = host.replace(/^www\./i, '').split('.');
+              if (parts.length > 0) {
+                companyFallback = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+              }
+            } catch (e) {}
+          }
+
+          freshData.clips[targetIdx].jobTitle = extracted.title || "Job Title";
+          freshData.clips[targetIdx].companyName = extracted.company || companyFallback;
+          freshData.clips[targetIdx].location = extracted.location || "Location";
           freshData.clips[targetIdx].score = extracted.score || null;
           freshData.clips[targetIdx].archetype = extracted.archetype || "Unknown";
           freshData.clips[targetIdx].salary = extracted.salary || "Unknown";
@@ -325,8 +425,27 @@ async function handleExtractPage(tabId, selectedText, url) {
   }
 
   if (type === "cover" || type === "both") {
-    promises.push(generateCoverJson(apiKey, clip.text, resumeText).then(d => {
+    promises.push(generateCoverJson(apiKey, clip.text, resumeText).then(async d => {
       docs.push({ html: buildCoverHtml(d, resumeText), order: 1, key: coverKey });
+      
+      const headerBlock = [
+        d.name || "Stephen Skalamera",
+        `New York, NY | (443) 624-1226 | skalamera@gmail.com`
+      ].join('\n');
+
+      const plainText = [
+        headerBlock,
+        "",
+        `Dear Hiring Manager,`,
+        "",
+        ...(d.paragraphs || [])
+      ].join('\n\n');
+
+      const freshData = await new Promise(r => chrome.storage.local.get({ clips: [] }, r));
+      if (freshData.clips[clipIdx]) {
+        freshData.clips[clipIdx].coverLetterText = plainText;
+        await chrome.storage.local.set({ clips: freshData.clips });
+      }
     }));
   }
 
@@ -1817,6 +1936,10 @@ async function handleClearResume() {
 }
 
 async function queueUnsyncedClip(clip) {
+  if (!clip || !clip.text || !clip.text.trim()) {
+    console.warn('[background] Skipping queueing of invalid clip (missing text description)');
+    return;
+  }
   try {
     const data = await chrome.storage.local.get({ unsyncedClips: [] });
     const exists = data.unsyncedClips.some(c => c.savedAt === clip.savedAt);
@@ -1845,6 +1968,10 @@ async function flushUnsyncedClips() {
         const remaining = [];
 
         for (const clip of queue) {
+          if (!clip || !clip.text || !clip.text.trim()) {
+            console.warn('[background] Cleaning up invalid queued clip (missing text description):', clip?.companyName);
+            continue;
+          }
           try {
             await ClydeClient.syncJobToClyde(
               clip.companyName || 'Unknown Company',

@@ -110,11 +110,13 @@
     
     .tracker-filters {
       display: none;
-      padding: 8px 16px;
-      background: rgba(30, 41, 59, 0.3);
+      padding: 10px 16px;
+      background: rgba(30, 41, 59, 0.35);
       border-bottom: 1px solid rgba(255, 255, 255, 0.05);
       align-items: center;
       gap: 12px;
+      flex-wrap: wrap !important;
+      row-gap: 8px !important;
     }
     .tracker-filters input[type="date"] {
       padding: 4px 8px;
@@ -140,6 +142,7 @@
       gap: 4px;
       cursor: pointer;
       margin-left: auto;
+      white-space: nowrap !important;
     }
 
     /* ── Resume Indicator ───────────────────────────────── */
@@ -700,7 +703,7 @@
 </head>
 <body>
   <header>
-    <div style="font-weight: 800; font-size: 28px !important; color: #38bdf8 !important; font-family: 'Space Grotesk', 'Inter', sans-serif !important; letter-spacing: 0.05em !important; z-index: 1 !important; line-height: 1 !important; user-select: none !important; display: flex !important; align-items: center !important;">CLYDE</div>
+    <img src="icons/clyde-header-logo.svg" alt="CLYDE" style="height: 52px !important; width: auto !important; z-index: 1 !important; user-select: none !important; display: block !important;">
     <img src="icons/popup_ui_header.svg" alt="logo" class="center-icon">
     <div class="header-actions">
       <button id="btn-guide" class="header-btn" title="User Guide" style="color: #38bdf8 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important;">
@@ -725,32 +728,57 @@
   </div>
 
   <div class="tracker-filters" id="tracker-filters" style="display: flex;">
-    <select id="group-by-select" style="padding: 4px 8px; border: 1px solid #e5e7eb; border-radius: 4px; font-family: inherit; font-size: 11px; color: #374151; outline: none; background: #fff; cursor: pointer;">
-      <option value="status">Group by Status</option>
-      <option value="date">Group by Date</option>
+    <select id="group-by-select" style="padding: 4px 8px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; font-family: inherit; font-size: 11px; color: #f1f5f9; outline: none; background: rgba(15, 23, 42, 0.5); cursor: pointer;">
+      <option value="status" style="background: #1e293b; color: #f1f5f9;">Group by Status</option>
+      <option value="date" style="background: #1e293b; color: #f1f5f9;">Group by Date</option>
     </select>
-    <input type="text" id="tracker-search" placeholder="Search..." style="padding: 4px 8px; border: 1px solid #e5e7eb; border-radius: 4px; font-family: inherit; font-size: 11px; color: #374151; outline: none; flex: 1;" />
+    <input type="text" id="tracker-search" placeholder="Search..." style="padding: 4px 8px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; font-family: inherit; font-size: 11px; color: #f1f5f9; outline: none; flex: 1; background: rgba(15, 23, 42, 0.5);" />
     <input type="date" id="date-picker" title="Filter by Date" />
     <button class="clear-date-btn" id="clear-date-btn">Clear Filter</button>
     <label class="sort-toggle-label">
-      <input type="checkbox" id="sort-rating-toggle" checked />
+      <input type="checkbox" id="sort-rating-toggle" checked style="width: auto; margin-right: 2px;" />
       Sort by Rating
     </label>
   </div>
 
-  <div id="resume-indicator" style="display: none;">
-    <div class="res-info">
-      <span class="res-label">Active Resume</span>
-      <span class="res-name" id="res-name-el">Loading...</span>
-    </div>
-    <div class="res-actions">
-      <button class="btn-res-action" id="btn-dl-plain" title="Download Plain Text Resume (ATS-friendly)">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-top; margin-right: 2px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-        txt
-      </button>
-      <button class="btn-res-action" id="btn-replace-res" title="Upload new Master PDF">Replace</button>
+  <div id="resume-indicator" style="display: none; flex-direction: column; gap: 10px; padding: 12px 16px; background: rgba(30, 41, 59, 0.35); border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+    <div id="res-name-el" style="display: none !important;"></div>
+    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+      <div class="res-info" style="flex: 1;">
+        <span class="res-label" style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">Active Resume Selection</span>
+        <select id="active-resume-select" style="margin-top: 4px; padding: 4px 8px; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; background: rgba(15, 23, 42, 0.6); color: #f1f5f9; font-size: 12px; font-weight: 600; outline: none; cursor: pointer; width: 100%;">
+          <option value="master" id="opt-master-resume">Master Resume (Loading...)</option>
+          <option value="tailored" id="opt-tailored-resume" disabled>Tailored Resume (Not generated)</option>
+        </select>
+      </div>
+      <div class="res-actions" style="margin-left: 12px; display: flex; gap: 6px; align-self: flex-end; margin-bottom: 2px;">
+        <button class="btn-res-action" id="btn-dl-plain" title="Download Plain Text Resume (ATS-friendly)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-top;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          txt
+        </button>
+        <button class="btn-res-action" id="btn-replace-res" title="Upload new Master PDF">Replace</button>
+      </div>
     </div>
     <input type="file" id="popup-resume-input" accept=".pdf" hidden>
+
+    <!-- Active Cover Letter Collapsible Widget -->
+    <div id="clyde-active-cl-widget" style="display: none; flex-direction: column; width: 100%; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: rgba(15, 23, 42, 0.4); margin-top: 6px; overflow: hidden; box-sizing: border-box;">
+      <div id="clyde-active-cl-header" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(30, 41, 59, 0.5); cursor: pointer; user-select: none;">
+        <span style="font-size: 11px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          Tailored Cover Letter
+        </span>
+        <span id="clyde-active-cl-toggle-icon" style="font-size: 12px; color: #94a3b8; transition: transform 0.2s;">▼</span>
+      </div>
+      <div id="clyde-active-cl-body" style="display: none; flex-direction: column; padding: 10px; gap: 8px; border-top: 1px solid rgba(255,255,255,0.05);">
+        <textarea id="clyde-active-cl-textarea" style="width: 100%; height: 160px; padding: 8px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; font-size: 12px; line-height: 1.4; color: #f1f5f9; resize: none; font-family: inherit; outline: none; box-sizing: border-box;"></textarea>
+        <div style="display: flex; justify-content: flex-end; gap: 6px; align-items: center;">
+          <span id="clyde-active-cl-status" style="font-size: 11px; color: #4ade80; display: none; margin-right: auto;">Saved ✓</span>
+          <button id="clyde-active-cl-copy" class="btn-res-action" style="padding: 4px 10px !important; font-size: 11px !important;">Copy</button>
+          <button id="clyde-active-cl-dl" class="btn-res-action" style="padding: 4px 10px !important; font-size: 11px !important;">Download .txt</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="clips-container">

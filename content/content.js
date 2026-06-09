@@ -64,6 +64,48 @@
           sidebarIframe.style.display = 'none';
         }, 300);
       }
+    } else if (event.data && event.data.type === 'CLYDE_EXTRACT_REQUEST') {
+      const clone = document.body.cloneNode(true);
+      const stripTags = ['script', 'style', 'noscript', 'code', 'iframe', 'header', 'footer', 'nav'];
+      for (const tag of stripTags) {
+        clone.querySelectorAll(tag).forEach(el => el.remove());
+      }
+
+      let textToExtract = clone.innerText || "";
+      const selectors = [
+        '.show-more-less-html__markup',
+        '.jobs-box__html-content',
+        '.jobs-description-content__text',
+        '.jobs-description__content',
+        '.jobs-search__job-details--container',
+        '.jobs-description',
+        '.job-description', 
+        '#job-description',
+        '[data-automation-id="jobPostingDescription"]',
+        '[data-automation-id="job-posting-description"]'
+      ];
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el && el.innerText && el.innerText.trim().length > 200) {
+          const elClone = el.cloneNode(true);
+          for (const tag of stripTags) {
+            elClone.querySelectorAll(tag).forEach(e => e.remove());
+          }
+          if (elClone.innerText && elClone.innerText.trim().length > 100) {
+            textToExtract = elClone.innerText;
+            break;
+          }
+        }
+      }
+
+      const iframe = document.getElementById('clyde-sidebar-iframe');
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({
+          type: 'CLYDE_EXTRACT_RESPONSE',
+          text: textToExtract,
+          url: window.location.href
+        }, '*');
+      }
     }
   });
 
@@ -434,17 +476,25 @@
         </div>
         <div id="job-autofill-progress" style="
           margin-top: 12px !important;
-          height: 5px !important;
+          height: 6px !important;
           background: rgba(255, 255, 255, 0.15) !important;
           border-radius: 3px !important;
           overflow: hidden !important;
+          display: block !important;
+          position: relative !important;
+          box-sizing: border-box !important;
+          width: 100% !important;
         ">
           <div id="job-autofill-progress-bar" style="
             height: 100% !important;
             background: #38bdf8 !important;
-            width: 0%;
+            width: 0% !important;
             transition: width 0.3s !important;
             border-radius: 3px !important;
+            display: block !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
           "></div>
         </div>
         <div id="job-autofill-navigation-notice" style="
@@ -507,28 +557,28 @@
         failedListHtml = `
           <div style="display: block !important; position: relative !important; margin-top: 10px !important; max-height: 140px !important; overflow-y: auto !important; background: rgba(251, 191, 36, 0.1) !important; border: 1px solid rgba(251, 191, 36, 0.3) !important; border-radius: 6px !important; padding: 10px !important; font-size: 12px !important; line-height: 1.5 !important; color: #fde047 !important; box-sizing: border-box !important;">
             <strong style="display: block !important; position: relative !important; font-weight: 700 !important; margin-bottom: 6px !important; font-size: 12px !important; line-height: 1.4 !important;">Please double-check for accuracy and completeness (${failedCount}):</strong>
-            <ul style="list-style-type: none !important; margin: 0 !important; padding: 0 0 0 4px !important; display: block !important; position: relative !important;">
+            <div style="display: block !important; position: relative !important; margin: 0 !important; padding: 0 !important; box-sizing: border-box !important;">
               ${uniqueFailed.map(label => `
-                <li style="margin-bottom: 6px !important; line-height: 1.5 !important; display: list-item !important; list-style: none !important; position: relative !important; float: none !important; clear: both !important; min-height: 18px !important; height: auto !important; width: auto !important; visibility: visible !important; text-align: left !important; font-size: 12px !important; color: #fde047 !important;">
+                <div style="margin-bottom: 6px !important; line-height: 1.5 !important; display: block !important; position: relative !important; height: auto !important; min-height: 18px !important; visibility: visible !important; text-align: left !important; font-size: 12px !important; color: #fde047 !important; box-sizing: border-box !important;">
                   • ${label}
-                </li>
+                </div>
               `).join('')}
-            </ul>
+            </div>
           </div>
         `;
       }
 
       if (statusEl) {
         statusEl.innerHTML = `
-          <div style="color: #4ade80 !important; font-weight: 600; line-height: 1.4 !important; display: block !important; position: relative !important;">Autofill Complete</div>
-          <div style="margin-top: 4px; color: #cbd5e1 !important; font-size: 13px; line-height: 1.4 !important; display: block !important; position: relative !important;">
+          <div style="color: #4ade80 !important; font-weight: 600 !important; line-height: 1.4 !important; display: block !important; position: relative !important;">Autofill Complete</div>
+          <div style="margin-top: 4px !important; color: #cbd5e1 !important; font-size: 13px !important; line-height: 1.4 !important; display: block !important; position: relative !important; box-sizing: border-box !important;">
             Processed ${total} fields${failedCount > 0 ? ` (${failedCount} require verification)` : ''}
           </div>
           ${failedListHtml}
-          <div style="margin-top: 6px; color: #94a3b8 !important; font-size: 11px; font-style: italic; line-height: 1.4 !important; display: block !important; position: relative !important;">
+          <div style="margin-top: 6px !important; color: #94a3b8 !important; font-size: 11px !important; font-style: italic !important; line-height: 1.4 !important; display: block !important; position: relative !important; box-sizing: border-box !important;">
             We recommend a quick manual review of your application before submitting.
           </div>
-          <button id="job-autofill-dismiss-btn" style="margin-top: 12px; width: 100%; padding: 8px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; cursor: pointer; color: #cbd5e1; font-weight: 600; font-size: 13px; transition: background 0.2s, color 0.2s; line-height: normal !important; display: block !important; box-sizing: border-box !important;">Dismiss</button>
+          <button id="job-autofill-dismiss-btn" style="margin-top: 12px !important; width: 100% !important; padding: 8px !important; background: rgba(255, 255, 255, 0.1) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 6px !important; cursor: pointer !important; color: #cbd5e1 !important; font-weight: 600 !important; font-size: 13px !important; transition: background 0.2s, color 0.2s !important; line-height: normal !important; display: block !important; box-sizing: border-box !important;">Dismiss</button>
         `;
 
         const dismissBtn = getOverlayElement('job-autofill-dismiss-btn');
@@ -1163,6 +1213,17 @@
 
         // 9. Attach / fill cover letter (Only on Pass 1 to prevent regeneration & overwrite loops)
         if (pass === 1 && coverLetterFields.length > 0 && coverLetter) {
+          // Save cover letter text to the active clip in storage!
+          try {
+            const data = await chrome.storage.local.get({ clips: [], activeClipIdx: null });
+            if (data.activeClipIdx !== null && data.clips[data.activeClipIdx]) {
+              data.clips[data.activeClipIdx].coverLetterText = coverLetter;
+              await chrome.storage.local.set({ clips: data.clips });
+            }
+          } catch (e) {
+            console.error('[Clyde] Failed to save generated cover letter to active clip:', e);
+          }
+
           const applicant = profileData.profile.fullName || 'Applicant';
           for (const field of coverLetterFields) {
             const resolved = resolveFieldElement(field);
@@ -1292,10 +1353,20 @@
       toggleSidebar();
       sendResponse({ ok: true });
     } else if (message.type === 'EXTRACT_JD_FROM_PAGE') {
-      let textToExtract = document.body.innerText;
+      const clone = document.body.cloneNode(true);
+      const stripTags = ['script', 'style', 'noscript', 'code', 'iframe', 'header', 'footer', 'nav'];
+      for (const tag of stripTags) {
+        clone.querySelectorAll(tag).forEach(el => el.remove());
+      }
+
+      let textToExtract = clone.innerText || "";
       const selectors = [
+        '.show-more-less-html__markup',
+        '.jobs-box__html-content',
+        '.jobs-description-content__text',
         '.jobs-description__content',
         '.jobs-search__job-details--container',
+        '.jobs-description',
         '.job-description', 
         '#job-description',
         '[data-automation-id="jobPostingDescription"]',
@@ -1304,8 +1375,14 @@
       for (const sel of selectors) {
         const el = document.querySelector(sel);
         if (el && el.innerText && el.innerText.trim().length > 200) {
-          textToExtract = el.innerText;
-          break;
+          const elClone = el.cloneNode(true);
+          for (const tag of stripTags) {
+            elClone.querySelectorAll(tag).forEach(e => e.remove());
+          }
+          if (elClone.innerText && elClone.innerText.trim().length > 100) {
+            textToExtract = elClone.innerText;
+            break;
+          }
         }
       }
       sendResponse({ text: textToExtract });
@@ -1411,40 +1488,50 @@
   }
 
   function injectLinkedInExtractButton() {
-    // Look for the "Save" button in the job details header
-    const saveBtn = document.querySelector('.jobs-save-button');
-    if (!saveBtn) return;
+    // Look for all "Save" buttons on the page (supports list view and single job view)
+    const saveBtns = document.querySelectorAll('.jobs-save-button');
+    if (!saveBtns || saveBtns.length === 0) return;
+
+    let targetSaveBtn = null;
+    for (const btnEl of saveBtns) {
+      // Find the visible save button (skips hidden sticky header ones)
+      if (btnEl.offsetWidth > 0 || btnEl.offsetHeight > 0) {
+        targetSaveBtn = btnEl;
+        break;
+      }
+    }
+
+    if (!targetSaveBtn) return;
 
     // The parent container of the Apply/Save buttons
-    const container = saveBtn.parentElement;
+    const container = targetSaveBtn.parentElement;
     if (!container) return;
 
-    let btn = document.getElementById('jayobee-inline-extract-btn');
+    let btn = container.querySelector('#jayobee-inline-extract-btn');
     if (!btn) {
+      const existing = document.getElementById('jayobee-inline-extract-btn');
+      if (existing) existing.remove();
+
       btn = document.createElement('button');
       btn.id = 'jayobee-inline-extract-btn';
       btn.style.cssText = `
-        background: #ffb800;
-        color: #111827;
+        background: transparent;
         border: none;
-        border-radius: 24px;
-        padding: 0 20px;
-        font-weight: 700;
-        font-size: 20px;
+        padding: 0;
         cursor: pointer;
         margin-left: 8px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         height: 40px;
-        line-height: 1.2;
-        font-family: "Zilla Slab", "Courier New", Courier, monospace;
-        box-shadow: 0 0 0 1px transparent;
+        box-shadow: none;
         transition: opacity 0.2s;
         box-sizing: border-box;
       `;
 
-      btn.innerHTML = `Clyde`;
+      const svgUrl = chrome.runtime.getURL("icons/clyde_apply.svg");
+      const buttonSvgHtml = `<img src="${svgUrl}" alt="Clyde" style="height: 40px !important; width: auto !important; display: inline-block !important; vertical-align: middle !important; pointer-events: none !important; border: none !important; margin: 0 !important; padding: 0 !important; filter: none !important;">`;
+      btn.innerHTML = buttonSvgHtml;
 
       btn.addEventListener('mouseenter', () => btn.style.opacity = '0.88');
       btn.addEventListener('mouseleave', () => btn.style.opacity = '1');
@@ -1452,10 +1539,19 @@
       btn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (btn.disabled || btn.innerText.includes('Extracted')) return;
+        if (btn.disabled || btn.getAttribute('data-state') === 'extracted') return;
 
-        btn.innerText = 'Extracting...';
+        btn.style.background = '#1e293b';
+        btn.style.padding = '0 20px';
+        btn.style.borderRadius = '24px';
+        btn.innerHTML = `<span style="font-size: 14px !important; font-weight: 700 !important; font-family: system-ui, -apple-system, sans-serif !important; color: #ffffff !important; vertical-align: middle !important;">Extracting...</span>`;
+        btn.setAttribute('data-state', 'extracting');
         btn.disabled = true;
+
+        // Open the sidebar cockpit if it's not already visible
+        if (!sidebarIframe || sidebarIframe.style.display === 'none') {
+          toggleSidebar();
+        }
 
         let textToExtract = document.body.innerText;
         const selectors = [
@@ -1479,16 +1575,27 @@
             url: window.location.href
           }, (res) => {
             if (chrome.runtime.lastError || res?.error) {
-              btn.innerText = 'Error!';
+              btn.style.background = '#991b1b';
+              btn.style.padding = '0 20px';
+              btn.style.borderRadius = '24px';
+              btn.innerHTML = `<span style="font-size: 14px !important; font-weight: 700 !important; font-family: system-ui, -apple-system, sans-serif !important; color: #ffffff !important; vertical-align: middle !important;">Error!</span>`;
+              btn.setAttribute('data-state', 'error');
               setTimeout(() => { updateButtonState(btn); btn.disabled = false; }, 2000);
             } else {
-              btn.innerText = 'Extracted \u2713';
+              btn.style.background = 'transparent';
+              btn.style.padding = '0';
+              btn.innerHTML = buttonSvgHtml + ` <span style="font-size: 16px !important; font-weight: bold !important; color: #10b981 !important; margin-left: 6px !important; vertical-align: middle !important;">\u2713</span>`;
+              btn.setAttribute('data-state', 'extracted');
               btn.style.opacity = '0.5';
               btn.style.cursor = 'default';
             }
           });
         } catch (e) {
-          btn.innerText = 'Error!';
+          btn.style.background = '#991b1b';
+          btn.style.padding = '0 20px';
+          btn.style.borderRadius = '24px';
+          btn.innerHTML = `<span style="font-size: 14px !important; font-weight: 700 !important; font-family: system-ui, -apple-system, sans-serif !important; color: #ffffff !important; vertical-align: middle !important;">Error!</span>`;
+          btn.setAttribute('data-state', 'error');
           setTimeout(() => { updateButtonState(btn); btn.disabled = false; }, 2000);
         }
       });
@@ -1497,7 +1604,7 @@
     }
 
     // Always update state if it's not currently extracting
-    if (!btn.innerText.includes('Extracting')) {
+    if (btn.getAttribute('data-state') !== 'extracting') {
       updateButtonState(btn);
     }
   }
@@ -1590,15 +1697,24 @@
           return (clipJobId && clipJobId === currentJobId) || (clip.url === currentUrl);
         });
 
+        const svgUrl = chrome.runtime.getURL("icons/clyde_apply.svg");
+        const buttonSvgHtml = `<img src="${svgUrl}" alt="Clyde" style="height: 40px !important; width: auto !important; display: inline-block !important; vertical-align: middle !important; pointer-events: none !important; border: none !important; margin: 0 !important; padding: 0 !important; filter: none !important;">`;
+
         if (isExtracted) {
-          btn.innerHTML = `Clyde \u2713`;
+          btn.style.background = 'transparent';
+          btn.style.padding = '0';
+          btn.innerHTML = buttonSvgHtml + ` <span style="font-size: 16px !important; font-weight: bold !important; color: #10b981 !important; margin-left: 6px !important; vertical-align: middle !important;">\u2713</span>`;
+          btn.setAttribute('data-state', 'extracted');
           btn.style.opacity = '0.5';
           btn.style.cursor = 'default';
           btn.disabled = true; // prevent re-clicking while extracted
           btn.onmouseenter = null;
           btn.onmouseleave = null;
         } else {
-          btn.innerHTML = `Clyde`;
+          btn.style.background = 'transparent';
+          btn.style.padding = '0';
+          btn.innerHTML = buttonSvgHtml;
+          btn.setAttribute('data-state', 'idle');
           btn.style.opacity = '1';
           btn.style.cursor = 'pointer';
           btn.disabled = false;
