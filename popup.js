@@ -113,28 +113,43 @@ if (btnGetJd) {
       if (!tabs || tabs.length === 0) throw new Error("No active tab found");
       const tab = tabs[0];
 
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => {
-          let textToExtract = document.body.innerText;
-          const selectors = [
-            '.jobs-description__content',
-            '.jobs-search__job-details--container',
-            '.job-description', 
-            '#job-description'
-          ];
-          for (const sel of selectors) {
-            const el = document.querySelector(sel);
-            if (el && el.innerText && el.innerText.trim().length > 200) {
-              textToExtract = el.innerText;
-              break;
-            }
-          }
-          return textToExtract;
-        }
-      });
+      let extractedText = "";
+      
+      // 1. Try sending a message to the content script first (best for sidebar iframe context)
+      try {
+        const response = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_JD_FROM_PAGE' });
+        extractedText = response?.text || "";
+      } catch (err) {
+        console.log("[Clyde Popup] Content script extraction message failed, falling back to executeScript:", err);
+      }
 
-      const extractedText = results && results[0] && results[0].result;
+      // 2. Fallback to executeScript if message failed or returned empty
+      if (!extractedText) {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            let textToExtract = document.body.innerText;
+            const selectors = [
+              '.jobs-description__content',
+              '.jobs-search__job-details--container',
+              '.job-description', 
+              '#job-description',
+              '[data-automation-id="jobPostingDescription"]',
+              '[data-automation-id="job-posting-description"]'
+            ];
+            for (const sel of selectors) {
+              const el = document.querySelector(sel);
+              if (el && el.innerText && el.innerText.trim().length > 200) {
+                textToExtract = el.innerText;
+                break;
+              }
+            }
+            return textToExtract;
+          }
+        });
+        extractedText = results && results[0] && results[0].result;
+      }
+
       if (extractedText) {
         await chrome.runtime.sendMessage({
           action: "extract-page",
@@ -147,14 +162,14 @@ if (btnGetJd) {
         btnGetJd.textContent = "Error: No text found";
       }
     } catch (e) {
-      console.error(e);
+      console.error("[Clyde Popup] Extraction failed:", e);
       btnGetJd.textContent = "Error!";
+    } finally {
+      setTimeout(() => {
+        btnGetJd.disabled = false;
+        btnGetJd.textContent = originalText;
+      }, 3000);
     }
-
-    setTimeout(() => {
-      btnGetJd.disabled = false;
-      btnGetJd.textContent = originalText;
-    }, 2000);
   });
 }
 

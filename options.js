@@ -416,6 +416,72 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  // -----------------------------------------------------------------------
+  // Clyde Widget Visibility & Blocking Settings
+  // -----------------------------------------------------------------------
+  const badgeDisabledGloballyInput = document.getElementById('badge-disabled-globally');
+  const blockedDomainsList = document.getElementById('blocked-domains-list');
+
+  // Load initial visibility settings
+  const visibilityData = await chrome.storage.local.get(['badgeDisabledGlobally', 'disabledDomains']);
+  
+  if (badgeDisabledGloballyInput) {
+    badgeDisabledGloballyInput.checked = visibilityData.badgeDisabledGlobally || false;
+  }
+
+  function renderBlockedDomains(domains) {
+    if (!blockedDomainsList) return;
+    blockedDomainsList.innerHTML = '';
+    
+    if (!domains || domains.length === 0) {
+      blockedDomainsList.innerHTML = '<span style="color: #64748b; font-style: italic; font-size: 13px;">No domains currently disabled.</span>';
+      return;
+    }
+
+    domains.forEach(domain => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);';
+      
+      const text = document.createElement('span');
+      text.textContent = domain;
+      text.style.cssText = 'color: #e2e8f0; font-size: 13px; font-weight: 500;';
+      
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = 'Enable';
+      removeBtn.className = 'secondary';
+      removeBtn.style.cssText = 'padding: 4px 10px !important; font-size: 11px !important; border-radius: 4px !important;';
+      
+      removeBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const settings = await chrome.storage.local.get('disabledDomains');
+        const list = settings.disabledDomains || [];
+        const index = list.indexOf(domain);
+        if (index > -1) {
+          list.splice(index, 1);
+          await chrome.storage.local.set({ disabledDomains: list });
+          renderBlockedDomains(list);
+        }
+      });
+
+      row.appendChild(text);
+      row.appendChild(removeBtn);
+      blockedDomainsList.appendChild(row);
+    });
+  }
+
+  renderBlockedDomains(visibilityData.disabledDomains || []);
+
+  // Save visibility settings when clicking "Save All Settings"
+  saveBtn.addEventListener('click', async () => {
+    // Wait a tick for the original handler
+    await new Promise(r => setTimeout(r, 60));
+    if (badgeDisabledGloballyInput) {
+      await chrome.storage.local.set({
+        badgeDisabledGlobally: badgeDisabledGloballyInput.checked
+      });
+    }
+  });
+
   // Pull Master Resume from Clyde on startup if enabled
   if (clydeData.clydePullResume) {
     try {
@@ -513,4 +579,25 @@ document.addEventListener('DOMContentLoaded', async () => {
       reader.readAsDataURL(file);
     });
   }
+
+  // -----------------------------------------------------------------------
+  // Tab Switching Logic
+  // -----------------------------------------------------------------------
+  const tabs = document.querySelectorAll('.settings-tab');
+  const tabContents = document.querySelectorAll('.tab-content');
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      // Deactivate all tabs
+      tabs.forEach(t => t.classList.remove('active'));
+      tabContents.forEach(tc => tc.classList.remove('active'));
+
+      // Activate selected tab
+      tab.classList.add('active');
+      const targetContent = document.getElementById(`tab-${tab.dataset.tab}`);
+      if (targetContent) {
+        targetContent.classList.add('active');
+      }
+    });
+  });
 });

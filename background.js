@@ -46,6 +46,27 @@ chrome.runtime.onInstalled.addListener(() => {
     title: "🔧 Answer (Custom Instructions)",
     contexts: ["selection"]
   });
+
+  // 7. Right-click pinned toolbar icon: "Clyde"
+  chrome.contextMenus.create({
+    id: "clyde-marketing-action",
+    title: "🌐 Clyde",
+    contexts: ["action"]
+  });
+
+  // 8. Right-click pinned toolbar icon: "Settings"
+  chrome.contextMenus.create({
+    id: "settings-action",
+    title: "⚙️ Settings",
+    contexts: ["action"]
+  });
+
+  // 9. Right-click pinned toolbar icon: "User Guide"
+  chrome.contextMenus.create({
+    id: "user-guide-action",
+    title: "📖 User Guide",
+    contexts: ["action"]
+  });
 });
 
 // ── Context menu click handler ─────────────────────────────────────────────────
@@ -138,6 +159,30 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
   if (info.menuItemId === "ai-answer-fit") {
     handleAiAnswer("What makes you a good fit?", tab, "fit");
+  }
+
+  if (info.menuItemId === "clyde-marketing-action") {
+    chrome.tabs.create({ url: "https://clydeai.live" });
+    return;
+  }
+
+  if (info.menuItemId === "settings-action") {
+    chrome.runtime.openOptionsPage();
+    return;
+  }
+
+  if (info.menuItemId === "user-guide-action") {
+    chrome.tabs.create({ url: chrome.runtime.getURL("user-guide.html") });
+    return;
+  }
+});
+
+// Toggle on-page sidebar iframe when clicking the browser extension toolbar action icon
+chrome.action.onClicked.addListener((tab) => {
+  if (tab && tab.id) {
+    chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR' }).catch(() => {
+      // Safe fallback if content scripts aren't loaded or active on this specific tab URL (like chrome://)
+    });
   }
 });
 

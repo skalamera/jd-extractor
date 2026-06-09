@@ -3,50 +3,55 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>jayobee - User Guide</title>
+  <title>Clyde - User Guide</title>
   <style>
     :root {
-      --primary: #fec111;
-      --primary-dark: #eab308;
-      --bg-color: #f7f8fb;
-      --text-main: #1a1a2e;
-      --text-muted: #6b7280;
-      --bg-card: #ffffff;
-      --border: #eff0f5;
+      --primary: #38bdf8;
+      --primary-dark: #0284c7;
+      --orange: #f97316;
+      --bg-color: #0f172a;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --bg-card: rgba(30, 41, 59, 0.45);
+      --border: rgba(255, 255, 255, 0.08);
       --radius: 12px;
-      --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background-color: var(--bg-color);
       color: var(--text-main);
       line-height: 1.6;
       font-size: 16px;
+      padding-bottom: 60px;
     }
 
     /* Header */
     header {
-      background: #111827;
-      color: white;
-      padding: 40px 20px;
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 48px 20px;
       text-align: center;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
     }
-    header h1 {
-      font-size: 36px;
-      font-weight: 800;
-      color: var(--primary);
-      margin-bottom: 10px;
-      letter-spacing: -0.02em;
+    header .logo-container {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 14px;
+    }
+    header img {
+      height: 100px;
     }
     header p {
       font-size: 18px;
-      color: #9ca3af;
+      color: var(--text-muted);
       max-width: 600px;
-      margin: 0 auto;
+      margin: 10px auto 0;
     }
 
     /* Container */
@@ -59,49 +64,52 @@
     /* Sections */
     .section {
       background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       border-radius: var(--radius);
-      padding: 30px;
+      padding: 36px;
       margin-bottom: 30px;
       box-shadow: var(--shadow);
       border: 1px solid var(--border);
     }
     .section-title {
-      font-size: 24px;
+      font-size: 22px;
       font-weight: 700;
-      margin-bottom: 20px;
+      margin-bottom: 24px;
       display: flex;
       align-items: center;
-      gap: 10px;
-      border-bottom: 2px solid var(--border);
-      padding-bottom: 10px;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 12px;
+      color: var(--primary);
     }
     .section-title .emoji {
-      font-size: 28px;
+      font-size: 26px;
     }
 
     /* Features Grid */
     .feature-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 20px;
       margin-top: 20px;
     }
     .feature-card {
-      background: #f9fafb;
-      padding: 20px;
+      background: rgba(15, 23, 42, 0.4);
+      padding: 24px;
       border-radius: 8px;
-      border: 1px solid #e5e7eb;
-      transition: transform 0.2s, box-shadow 0.2s;
+      border: 1px solid var(--border);
+      transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
     }
     .feature-card:hover {
       transform: translateY(-2px);
-      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-      border-color: var(--primary-dark);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+      border-color: var(--primary);
     }
     .feature-card h3 {
-      font-size: 18px;
+      font-size: 17px;
       margin-bottom: 10px;
-      color: #111827;
+      color: #ffffff;
       display: flex;
       align-items: center;
       gap: 8px;
@@ -109,6 +117,7 @@
     .feature-card p {
       font-size: 14px;
       color: var(--text-muted);
+      line-height: 1.5;
     }
 
     /* Steps List */
@@ -119,7 +128,7 @@
     .steps li {
       position: relative;
       padding-left: 50px;
-      margin-bottom: 20px;
+      margin-bottom: 24px;
     }
     .steps li::before {
       content: counter(step-counter);
@@ -130,7 +139,7 @@
       width: 32px;
       height: 32px;
       background: var(--primary);
-      color: #111827;
+      color: #0f172a;
       border-radius: 50%;
       display: flex;
       align-items: center;
@@ -141,18 +150,21 @@
     .steps strong {
       display: block;
       margin-bottom: 4px;
-      color: #111827;
+      color: #ffffff;
     }
 
     /* Tips */
     .tip {
-      background: #eff6ff;
-      border-left: 4px solid #3b82f6;
+      background: rgba(56, 189, 248, 0.08);
+      border-left: 4px solid var(--primary);
       padding: 16px;
-      border-radius: 4px;
-      margin-top: 10px;
+      border-radius: 6px;
+      margin-top: 15px;
       font-size: 14px;
-      color: #1e3a8a;
+      color: #e2e8f0;
+    }
+    .tip strong {
+      color: var(--primary);
     }
 
     /* Footer */
@@ -163,7 +175,7 @@
       font-size: 14px;
     }
     footer a {
-      color: var(--primary-dark);
+      color: var(--primary);
       text-decoration: none;
       font-weight: 600;
     }
@@ -175,43 +187,41 @@
 <body>
 
   <header>
-    <h1>jayobee</h1>
-    <p>Your Ultimate AI-Powered Job Search Companion 🚀</p>
+    <div class="logo-container">
+      <img src="icons/user_guide.svg" alt="Clyde Logo">
+    </div>
+    <p>Your Intelligent AI-Powered Job Search Companion 🚀</p>
   </header>
 
   <div class="container">
     
     <div class="section">
       <div class="section-title"><span class="emoji">👋</span> Getting Started</div>
-      <p style="margin-bottom: 20px;">The best way to start is to open the extension Settings (the ⚙️ icon in the popup) and follow these steps:</p>
+      <p style="margin-bottom: 24px; color: var(--text-muted);">The best way to start is to click the ⚙️ settings icon inside your extension popup and customize your profile under the tabbed interface:</p>
       <ul class="steps">
         <li>
-          <strong>Enter Gemini API Key 🧠</strong>
-          Provide your Gemini API key. This empowers jayobee to write cover letters, analyze roles, and auto-fill applications!
+          <strong>API Configuration 🧠</strong>
+          Provide your Gemini API key inside the <em>Core Settings</em> tab. This empowers Clyde to instantly answer complex application forms, audit your resume, and write tailored documents!
+        </li>
+        <li>
+          <strong>Clyde Desktop Integration 🖥️</strong>
+          Set your Clyde Host and Port. When configured, Clyde automatically syncs all your saved job descriptions (clips) and tailored documents back to your Career Cockpit local server on port 4593!
         </li>
         <li>
           <strong>Upload Master Resume 📄</strong>
-          Upload the master resume that all tailored resumes will be based off of. You can upload it here on the settings page or at the top of the popup UI in the Active Resume section. While on the Settings page, you can use the ATS Readiness tool which will scan and audit your resume, giving it an ATS score (0-100%, with 100% indicating a perfect resume). The tool will provide feedback on strengths, weaknesses, and highly actionable steps to improve it.
+          Upload your Master Resume (PDF) inside the <em>Resume & Audits</em> tab. From here, you can click <strong>Audit Master Resume</strong> to get an instant, AI-powered ATS compatibility evaluation (strengths, gaps, and actionable fixes).
         </li>
         <li>
-          <strong>Fill Out Profile Information 👤</strong>
-          Complete the Profile Information section. These details are used for the AI Apply feature to automatically fill out basic application fields.
+          <strong>Set Profile Details 👤</strong>
+          Enter your contact, address, and social links in the <em>Profile Details</em> tab, and set standard demographic / work visa responses under the <em>Preferences</em> tab. This makes auto-filling basic fields instantaneous.
         </li>
         <li>
-          <strong>Complete Additional Questions ❓</strong>
-          Fill out the Additional Questions section. This contains common questions asked on most job applications and is also essential for the AI Apply feature.
-        </li>
-        <li>
-          <strong>Add Custom Q&A 💬</strong>
-          In the Custom Q&A section, enter any specific question and answer pairings you want the AI Apply feature to be able to handle when autofilling applications.
-        </li>
-        <li>
-          <strong>Save All Settings 💾</strong>
-          Click the save button to lock in all your configurations.
+          <strong>Custom Q&A Pairs 💬</strong>
+          Add custom keyword-value matching answers inside the <em>Preferences</em> tab. If an application asks a unique question (e.g. "Github link" or specific clearance prompts), your custom answers will override AI-generation for absolute accuracy!
         </li>
       </ul>
-      <p style="margin-top: 20px; font-weight: 500; color: #10b981;">
-        ✨ When you open the popup, you will now see an Active Resume loaded and you are ready to add your first job to the pipeline!
+      <p style="margin-top: 24px; font-weight: 500; color: #4ade80;">
+        ✨ Once saved, you are fully set up. Load any job site, and you will see your active tailored resume loaded in the toolbar popup!
       </p>
     </div>
 
@@ -220,56 +230,59 @@
       <div class="feature-grid">
         <div class="feature-card">
           <h3>🤖 AI Auto-Apply</h3>
-          <p>Click <strong>AI Apply</strong> on any saved job. jayobee will open the application page and use your resume + the job description to intelligently auto-fill forms on Workday, LinkedIn, Lever, Greenhouse, Ashby, and more!</p>
+          <p>Click <strong>AI Apply ✨</strong> on any saved job. Clyde loads the application form and uses your resume + job context to autonomously autofill complex forms across Workday, LinkedIn, Lever, Greenhouse, Ashby, and more!</p>
+        </div>
+        <div class="feature-card">
+          <h3>📂 Multi-Card Autofill</h3>
+          <p>Clyde automatically detects complex lists (like Work Experience and Education rows) on Workday and SmartRecruiters. It handles pointer-events and expands the exact number of card rows needed to match your profile!</p>
         </div>
         <div class="feature-card">
           <h3>📝 Tailored Documents</h3>
-          <p>Generate perfectly tailored <strong>Resume PDFs</strong> and <strong>Cover Letter PDFs</strong> that match the specific job description, bypassing ATS filters and highlighting your most relevant skills.</p>
+          <p>Generate highly-optimized <strong>Resume PDFs</strong> and <strong>Cover Letter PDFs</strong> that match the target job description to bypass ATS keyword algorithms and highlight your most relevant projects.</p>
         </div>
         <div class="feature-card">
-          <h3>📊 AI Match Scoring</h3>
-          <p>Every saved job gets a match score (Excellent to Poor) based on your resume. Click the score to see a detailed Gap Analysis, including your top strengths, main gaps, and mitigation strategies.</p>
+          <h3>📅 Precise Date Insertion</h3>
+          <p>Clyde bypasses date format mask crashes (e.g. <code>MM/DD/YYYY</code> on Workday and certifications) by formatting dates properly and writing them natively in one shot instead of typing character-by-character.</p>
         </div>
         <div class="feature-card">
-          <h3>🎙️ Interview Prep</h3>
-          <p>Nervous about behavioral questions? Click <strong>Interview Prep</strong> to generate custom STAR method stories based on your experience and the specific requirements of the role.</p>
-        </div>
-        <div class="feature-card">
-          <h3>🤝 LinkedIn Networking</h3>
-          <p>Need a warm intro? Use the <strong>LinkedIn Message</strong> generator to instantly craft a personalized outreach message to recruiters or hiring managers.</p>
+          <h3>🎙️ STAR Method Interview Prep</h3>
+          <p>Nervous about behavioral rounds? Clyde analyzes your background and target role requirements to write highly structured behavioral stories matching the STAR method.</p>
         </div>
         <div class="feature-card">
           <h3>🗂️ Application Tracker</h3>
-          <p>Keep your search organized. Move jobs between Pipeline, Tracker (Applied, Interviewing), and Archived. Filter by dates, search by keywords, and track your progress!</p>
+          <p>Keep your funnel organized. Seamlessly drag or move job cards between Pipeline, Saved, Tracker, and Archived. Filter by dates, search by keywords, and track your progress!</p>
         </div>
       </div>
     </div>
 
     <div class="section">
-      <div class="section-title"><span class="emoji">🧭</span> Navigation & Workflow</div>
-      <p>The jayobee popup is organized into four main tabs to match your job search funnel:</p>
-      <br>
+      <div class="section-title"><span class="emoji">🧭</span> Navigation & Visibility Controls</div>
+      <p style="color: var(--text-muted); margin-bottom: 16px;">The Clyde popup is organized into four main tabs to match your job search funnel:</p>
       <ul style="list-style-type: none;">
-        <li style="margin-bottom: 20px;">
-          <strong>🗂️ Pipeline</strong>
-          Your inbox for new jobs. Review match scores, generate tailored documents, and hit "AI Apply". Set the active job (⭐️ icon) to provide context for AI tasks.
+        <li style="margin-bottom: 16px;">
+          <strong>🗂️ Pipeline</strong> - Your inbox for new jobs. Review match scores, generate tailored documents, and hit "AI Apply". Set the active job (⭐️ icon) to provide context for AI tasks.
         </li>
-        <li style="margin-bottom: 20px;">
-          <strong>❤️ Saved</strong>
-          Your favorites. Click the heart icon on any job to save it here for later.
+        <li style="margin-bottom: 16px;">
+          <strong>❤️ Saved</strong> - Your favorites. Click the heart icon on any job to save it here for later.
         </li>
-        <li style="margin-bottom: 20px;">
-          <strong>📈 Tracker</strong>
-          Jobs you've applied to. Click the bookmark icon to start tracking, then use the dropdown to update status (Applied ➡️ Interviewing). Group by date or status.
+        <li style="margin-bottom: 16px;">
+          <strong>📈 Tracker</strong> - Jobs you've applied to. Update statuses (Applied ➡️ Interviewing) and group cards by date or status.
         </li>
-        <li>
-          <strong>🗄️ Archived</strong>
-          End of the line. Jobs marked as "Accepted" or "Rejected" move here to keep your active tracker clean.
+        <li style="margin-bottom: 24px;">
+          <strong>🗄️ Archived</strong> - End of the line. Keeps your active dashboard clean.
         </li>
       </ul>
       
+      <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 10px; color: #ffffff;">🚫 On-Page Badge Visibility Controls</h3>
+      <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;">Hover over the Clyde on-page ghost badge and click the close (<strong>"X"</strong>) button to trigger the instant visibility dropdown:</p>
+      <ul style="list-style-type: none; padding-left: 12px; font-size: 14px; color: var(--text-muted);">
+        <li style="margin-bottom: 8px;">• <strong>Hide until next visit</strong>: Standard close. Hides Clyde on this page temporarily for this session.</li>
+        <li style="margin-bottom: 8px;">• <strong>Disable on all pages</strong>: Persistently turns the Clyde badge off globally.</li>
+        <li style="margin-bottom: 16px;">• <strong>Disable on this domain</strong>: Disables Clyde only on the current domain (e.g. workday.com), leaving it active on other portals.</li>
+      </ul>
+
       <div class="tip">
-        <strong>Pro Tip:</strong> Click on the text preview of any job in the popup to expand it and read the full description! Click the title or company name to edit them directly.
+        <strong>Pro Tip:</strong> If you disable the badge globally or on a domain, you can easily turn it back on anytime! Go to your Settings ➡️ <em>Core Settings</em> tab, where you can uncheck global disabling or click <strong>Enable</strong> next to any blocked domain.
       </div>
     </div>
 

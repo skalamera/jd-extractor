@@ -203,11 +203,111 @@
 
     closeBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      tabEl.style.display = 'none';
-      if (sidebarIframe) {
-        sidebarIframe.style.opacity = '0';
-        sidebarIframe.style.transform = 'translateX(20px)';
-        setTimeout(() => { sidebarIframe.style.display = 'none'; }, 300);
+      
+      const existingMenu = document.getElementById('clyde-close-menu');
+      if (existingMenu) {
+        existingMenu.remove();
+        return;
+      }
+
+      const menu = document.createElement('div');
+      menu.id = 'clyde-close-menu';
+      menu.style.cssText = `
+        position: absolute !important;
+        right: 12px !important;
+        top: 32px !important;
+        background: rgba(15, 23, 42, 0.75) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.35) !important;
+        z-index: 2147483647 !important;
+        padding: 6px 0 !important;
+        width: 180px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        box-sizing: border-box !important;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+      `;
+
+      const options = [
+        {
+          text: 'Hide until next visit',
+          action: () => {
+            tabEl.style.display = 'none';
+            if (sidebarIframe) {
+              sidebarIframe.style.opacity = '0';
+              sidebarIframe.style.transform = 'translateX(20px)';
+              setTimeout(() => { sidebarIframe.style.display = 'none'; }, 300);
+            }
+          }
+        },
+        {
+          text: 'Disable on all pages',
+          action: async () => {
+            await chrome.storage.local.set({ badgeDisabledGlobally: true });
+            if (fab) { fab.remove(); fab = null; }
+            if (sidebarIframe) { sidebarIframe.remove(); sidebarIframe = null; }
+          }
+        },
+        {
+          text: 'Disable on this domain',
+          action: async () => {
+            const currentDomain = window.location.hostname;
+            const settings = await chrome.storage.local.get('disabledDomains');
+            const disabledDomains = settings.disabledDomains || [];
+            if (!disabledDomains.includes(currentDomain)) {
+              disabledDomains.push(currentDomain);
+              await chrome.storage.local.set({ disabledDomains });
+            }
+            if (fab) { fab.remove(); fab = null; }
+            if (sidebarIframe) { sidebarIframe.remove(); sidebarIframe = null; }
+          }
+        }
+      ];
+
+      options.forEach(opt => {
+        const item = document.createElement('div');
+        item.textContent = opt.text;
+        item.style.cssText = `
+          padding: 8px 16px !important;
+          color: #cbd5e1 !important;
+          font-size: 13px !important;
+          cursor: pointer !important;
+          transition: background 0.15s, color 0.15s !important;
+          text-align: left !important;
+          font-family: inherit !important;
+          box-sizing: border-box !important;
+        `;
+        
+        item.addEventListener('mouseenter', () => {
+          item.style.background = 'rgba(56, 189, 248, 0.15)';
+          item.style.color = '#38bdf8';
+        });
+        
+        item.addEventListener('mouseleave', () => {
+          item.style.background = 'transparent';
+          item.style.color = '#cbd5e1';
+        });
+
+        item.addEventListener('click', async (evt) => {
+          evt.stopPropagation();
+          menu.remove();
+          await opt.action();
+        });
+
+        menu.appendChild(item);
+      });
+
+      tabEl.appendChild(menu);
+    });
+
+    // Close menu when clicking outside of it
+    document.addEventListener('click', (e) => {
+      const openMenu = document.getElementById('clyde-close-menu');
+      if (openMenu && !e.target.closest('#clyde-close-menu') && !e.target.closest('#clyde-tab-close')) {
+        openMenu.remove();
       }
     });
 
@@ -1188,6 +1288,27 @@
     if (message.type === 'START_AUTOFILL') {
       startAutoFill();
       sendResponse({ ok: true });
+    } else if (message.type === 'TOGGLE_SIDEBAR') {
+      toggleSidebar();
+      sendResponse({ ok: true });
+    } else if (message.type === 'EXTRACT_JD_FROM_PAGE') {
+      let textToExtract = document.body.innerText;
+      const selectors = [
+        '.jobs-description__content',
+        '.jobs-search__job-details--container',
+        '.job-description', 
+        '#job-description',
+        '[data-automation-id="jobPostingDescription"]',
+        '[data-automation-id="job-posting-description"]'
+      ];
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el && el.innerText && el.innerText.trim().length > 200) {
+          textToExtract = el.innerText;
+          break;
+        }
+      }
+      sendResponse({ text: textToExtract });
     } else if (message.type === 'AUTOFILL_PROGRESS') {
       if (window === window.top) {
         updateStatus(message.text, message.progress);
