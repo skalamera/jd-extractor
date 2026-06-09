@@ -7,47 +7,277 @@
   let fab = null;
   let overlay = null;
 
+  let sidebarIframe = null;
+
+  function toggleSidebar() {
+    if (window !== window.top) return;
+
+    if (sidebarIframe) {
+      if (sidebarIframe.style.display === 'none') {
+        sidebarIframe.style.display = 'block';
+        setTimeout(() => {
+          sidebarIframe.style.opacity = '1';
+          sidebarIframe.style.transform = 'translateX(0)';
+        }, 10);
+      } else {
+        sidebarIframe.style.opacity = '0';
+        sidebarIframe.style.transform = 'translateX(20px)';
+        setTimeout(() => {
+          sidebarIframe.style.display = 'none';
+        }, 300);
+      }
+    } else {
+      sidebarIframe = document.createElement('iframe');
+      sidebarIframe.id = 'clyde-sidebar-iframe';
+      sidebarIframe.src = chrome.runtime.getURL('popup.html?sidebar=true');
+      sidebarIframe.style.cssText = `
+        position: fixed !important;
+        top: 20px !important;
+        right: 20px !important;
+        width: 460px !important;
+        height: calc(100vh - 40px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+        z-index: 2147483646 !important;
+        background: #0f172a !important;
+        transition: opacity 0.3s ease, transform 0.3s ease !important;
+        opacity: 0 !important;
+        transform: translateX(20px) !important;
+        display: block !important;
+      `;
+      document.body.appendChild(sidebarIframe);
+      setTimeout(() => {
+        sidebarIframe.style.opacity = '1';
+        sidebarIframe.style.transform = 'translateX(0)';
+      }, 10);
+    }
+  }
+
+  // Listen for sidebar messages (e.g. CLOSE_SIDEBAR)
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'CLOSE_SIDEBAR') {
+      if (sidebarIframe && sidebarIframe.style.display !== 'none') {
+        sidebarIframe.style.opacity = '0';
+        sidebarIframe.style.transform = 'translateX(20px)';
+        setTimeout(() => {
+          sidebarIframe.style.display = 'none';
+        }, 300);
+      }
+    }
+  });
+
   // Create floating action button
   function createFAB() {
     if (window !== window.top) return; // Only show FAB in top frame
 
     if (fab) return;
 
+    const iconUrl = chrome.runtime.getURL('icons/sidebar_ghost_icon.svg');
+
     fab = document.createElement('div');
     fab.id = 'job-autofill-fab';
+    
+    // Style element for CSS rules
+    const styleEl = document.createElement('style');
+    styleEl.textContent = `
+      #clyde-floating-tab {
+        position: fixed !important;
+        right: 0 !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        width: 64px !important;
+        height: 64px !important;
+        background-color: #3b4b72 !important;
+        border-top-left-radius: 12px !important;
+        border-bottom-left-radius: 12px !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.35) !important;
+        z-index: 2147483647 !important;
+        cursor: pointer !important;
+        transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        overflow: visible !important;
+        user-select: none !important;
+        box-sizing: border-box !important;
+      }
+      #clyde-floating-tab:hover {
+        width: 106px !important;
+      }
+      #clyde-tab-content {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        width: 100% !important;
+        height: 100% !important;
+        padding-left: 13px !important;
+        gap: 12px !important;
+        box-sizing: border-box !important;
+      }
+      #clyde-tab-logo {
+        width: 38px !important;
+        height: 38px !important;
+        pointer-events: none !important;
+        flex-shrink: 0 !important;
+      }
+      #clyde-tab-drag {
+        display: grid !important;
+        grid-template-columns: repeat(2, 6px) !important;
+        grid-gap: 4px !important;
+        cursor: ns-resize !important;
+        opacity: 0 !important;
+        transition: opacity 0.2s ease !important;
+        flex-shrink: 0 !important;
+        padding: 4px !important;
+      }
+      #clyde-floating-tab:hover #clyde-tab-drag {
+        opacity: 1 !important;
+      }
+      .clyde-drag-dot {
+        width: 6px !important;
+        height: 6px !important;
+        background-color: white !important;
+        border-radius: 50% !important;
+      }
+      #clyde-tab-close {
+        position: absolute !important;
+        left: -10px !important;
+        top: -10px !important;
+        width: 22px !important;
+        height: 22px !important;
+        background-color: #4f649c !important;
+        color: white !important;
+        border-radius: 50% !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-family: Arial, sans-serif !important;
+        font-size: 11px !important;
+        font-weight: bold !important;
+        cursor: pointer !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3) !important;
+        opacity: 0 !important;
+        transition: opacity 0.2s ease !important;
+        user-select: none !important;
+        z-index: 10 !important;
+      }
+      #clyde-floating-tab:hover #clyde-tab-close {
+        opacity: 1 !important;
+      }
+      #clyde-tab-close:hover {
+        background-color: #3f517d !important;
+      }
+    `;
+    document.head.appendChild(styleEl);
+
     fab.innerHTML = `
-      <div style="
-        position: fixed;
-        bottom: 24px;
-        right: 24px;
-        width: 56px;
-        height: 56px;
-        border-radius: 50%;
-        background: #1a73e8;
-        color: white;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-        z-index: 999999;
-        font-size: 24px;
-        font-weight: bold;
-        transition: transform 0.2s, background 0.2s;
-        user-select: none;
-      " id="job-autofill-fab-btn" title="Auto-fill this application">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-        </svg>
+      <div id="clyde-floating-tab" title="Clyde Assistant">
+        <div id="clyde-tab-close" title="Hide Clyde">X</div>
+        <div id="clyde-tab-content">
+          <img id="clyde-tab-logo" src="${iconUrl}" alt="Clyde logo">
+          <div id="clyde-tab-drag" title="Drag up/down">
+            <div class="clyde-drag-dot"></div>
+            <div class="clyde-drag-dot"></div>
+            <div class="clyde-drag-dot"></div>
+            <div class="clyde-drag-dot"></div>
+            <div class="clyde-drag-dot"></div>
+            <div class="clyde-drag-dot"></div>
+          </div>
+        </div>
       </div>
     `;
     document.body.appendChild(fab);
 
-    const btn = document.getElementById('job-autofill-fab-btn');
-    btn.addEventListener('mouseenter', () => btn.style.transform = 'scale(1.1)');
-    btn.addEventListener('mouseleave', () => btn.style.transform = 'scale(1)');
-    btn.addEventListener('click', () => startAutoFill());
+    const tabEl = document.getElementById('clyde-floating-tab');
+    const dragHandle = document.getElementById('clyde-tab-drag');
+    const closeBtn = document.getElementById('clyde-tab-close');
+
+    // Click behavior (excluding close/drag)
+    tabEl.addEventListener('click', (e) => {
+      if (e.target.closest('#clyde-tab-close') || e.target.closest('#clyde-tab-drag')) {
+        return;
+      }
+      toggleSidebar();
+    });
+
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      tabEl.style.display = 'none';
+      if (sidebarIframe) {
+        sidebarIframe.style.opacity = '0';
+        sidebarIframe.style.transform = 'translateX(20px)';
+        setTimeout(() => { sidebarIframe.style.display = 'none'; }, 300);
+      }
+    });
+
+    // Drag behavior
+    let isDragging = false;
+    let dragStartY = 0;
+    let startTop = 0;
+
+    dragHandle.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      dragStartY = e.clientY;
+      const rect = tabEl.getBoundingClientRect();
+      startTop = rect.top;
+
+      document.body.style.setProperty('user-select', 'none', 'important');
+      document.body.style.cursor = 'ns-resize';
+
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const deltaY = e.clientY - dragStartY;
+      let newTop = startTop + deltaY;
+
+      // Constrain inside viewport
+      const maxTop = window.innerHeight - tabEl.offsetHeight;
+      if (newTop < 0) newTop = 0;
+      if (newTop > maxTop) newTop = maxTop;
+
+      tabEl.style.setProperty('top', `${newTop}px`, 'important');
+      tabEl.style.setProperty('bottom', 'auto', 'important');
+      tabEl.style.setProperty('transform', 'none', 'important');
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+      }
+    });
+
+    // Touch events for drag
+    dragHandle.addEventListener('touchstart', (e) => {
+      isDragging = true;
+      dragStartY = e.touches[0].clientY;
+      const rect = tabEl.getBoundingClientRect();
+      startTop = rect.top;
+      e.stopPropagation();
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (e) => {
+      if (!isDragging) return;
+      const deltaY = e.touches[0].clientY - dragStartY;
+      let newTop = startTop + deltaY;
+
+      const maxTop = window.innerHeight - tabEl.offsetHeight;
+      if (newTop < 0) newTop = 0;
+      if (newTop > maxTop) newTop = maxTop;
+
+      tabEl.style.setProperty('top', `${newTop}px`, 'important');
+      tabEl.style.setProperty('bottom', 'auto', 'important');
+      tabEl.style.setProperty('transform', 'none', 'important');
+    }, { passive: false });
+
+    window.addEventListener('touchend', () => {
+      isDragging = false;
+    });
   }
 
   let skipRequested = false;
@@ -117,6 +347,17 @@
             border-radius: 3px !important;
           "></div>
         </div>
+        <div id="job-autofill-navigation-notice" style="
+          margin-top: 12px !important;
+          font-size: 11px !important;
+          color: #f87171 !important;
+          font-style: italic !important;
+          line-height: 1.4 !important;
+          display: block !important;
+          position: relative !important;
+        ">
+          ⚠️ Please do not navigate away or close this page while autofill is in progress.
+        </div>
         <button id="job-autofill-skip-btn" style="margin-top: 14px !important; width: 100% !important; padding: 8px !important; background: rgba(249, 115, 22, 0.8) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 6px !important; cursor: pointer !important; color: white !important; font-weight: 600 !important; font-size: 12px !important; transition: background 0.2s !important; line-height: normal !important; display: none !important; box-sizing: border-box !important;">Skip Current Field</button>
       </div>
     `;
@@ -153,6 +394,9 @@
     if (window === window.top) {
       const skipBtn = getOverlayElement('job-autofill-skip-btn');
       if (skipBtn) skipBtn.style.display = 'none';
+
+      const noticeEl = getOverlayElement('job-autofill-navigation-notice');
+      if (noticeEl) noticeEl.style.display = 'none';
 
       const statusEl = getOverlayElement('job-autofill-status');
       const failedCount = failedLabels.length;
@@ -233,6 +477,9 @@
     if (window === window.top) {
       const skipBtn = getOverlayElement('job-autofill-skip-btn');
       if (skipBtn) skipBtn.style.display = 'none';
+
+      const noticeEl = getOverlayElement('job-autofill-navigation-notice');
+      if (noticeEl) noticeEl.style.display = 'none';
 
       const statusEl = getOverlayElement('job-autofill-status');
       if (statusEl) {
@@ -989,7 +1236,7 @@
   });
 
   // Initialize: show FAB if this looks like a job application page
-  function init() {
+  async function init() {
     const url = window.location.href;
 
     // Always start LinkedIn button injection poller on linkedin.com
@@ -1000,13 +1247,22 @@
     const isJobSite = /ashbyhq\.com|greenhouse\.io|lever\.co|myworkdayjobs\.com|workday\.com|linkedin\.com\/jobs|icims\.com|taleo\.net|careers|jobs|apply|application/i.test(url);
 
     if (isJobSite) {
-      createFAB();
-      mutationObserver.observe(document.body, { childList: true, subtree: true });
+      const settings = await chrome.storage.local.get(['badgeDisabledGlobally', 'disabledDomains']);
+      const isGloballyDisabled = settings.badgeDisabledGlobally || false;
+      const disabledDomains = settings.disabledDomains || [];
+      const currentDomain = window.location.hostname;
+
+      if (!isGloballyDisabled && !disabledDomains.includes(currentDomain)) {
+        createFAB();
+        mutationObserver.observe(document.body, { childList: true, subtree: true });
+      } else {
+        console.log('[Clyde] FAB is disabled on this page/domain via user settings.');
+      }
     }
 
     // Monitor URL changes on Single Page Applications (SPAs) like LinkedIn
     let lastUrl = url;
-    setInterval(() => {
+    setInterval(async () => {
       const currentUrl = window.location.href;
       if (currentUrl !== lastUrl) {
         lastUrl = currentUrl;
@@ -1014,9 +1270,18 @@
         // Re-evaluate FAB showing
         const isJob = /ashbyhq\.com|greenhouse\.io|lever\.co|myworkdayjobs\.com|workday\.com|linkedin\.com\/jobs|icims\.com|taleo\.net|careers|jobs|apply|application/i.test(currentUrl);
         if (isJob) {
-          if (!fab) createFAB();
-          mutationObserver.disconnect();
-          mutationObserver.observe(document.body, { childList: true, subtree: true });
+          const settings = await chrome.storage.local.get(['badgeDisabledGlobally', 'disabledDomains']);
+          const isGloballyDisabled = settings.badgeDisabledGlobally || false;
+          const disabledDomains = settings.disabledDomains || [];
+          const currentDomain = window.location.hostname;
+
+          if (!isGloballyDisabled && !disabledDomains.includes(currentDomain)) {
+            if (!fab) createFAB();
+            mutationObserver.disconnect();
+            mutationObserver.observe(document.body, { childList: true, subtree: true });
+          } else {
+            if (fab) { fab.remove(); fab = null; }
+          }
         } else {
           if (fab) { fab.remove(); fab = null; }
         }

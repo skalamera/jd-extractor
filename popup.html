@@ -42,9 +42,10 @@
     header .center-icon {
       position: absolute;
       left: 50%;
-      transform: translateX(-50%);
-      height: 40px;
-      width: 40px;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      height: 70px;
+      width: 70px;
     }
     
     header .header-actions {
@@ -699,13 +700,15 @@
 </head>
 <body>
   <header>
-    <img src="icons/clyde-header-logo.svg" alt="Clyde" style="height: 24px !important; width: auto !important; display: block !important; margin: 0 !important; z-index: 1 !important;">
+    <div style="font-weight: 800; font-size: 28px !important; color: #38bdf8 !important; font-family: 'Space Grotesk', 'Inter', sans-serif !important; letter-spacing: 0.05em !important; z-index: 1 !important; line-height: 1 !important; user-select: none !important; display: flex !important; align-items: center !important;">CLYDE</div>
     <img src="icons/popup_ui_header.svg" alt="logo" class="center-icon">
     <div class="header-actions">
-      <button id="btn-guide" class="header-btn" title="User Guide" style="color: #38bdf8 !important;">
+      <button id="btn-guide" class="header-btn" title="User Guide" style="color: #38bdf8 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important;">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
       </button>
-      <button id="btn-settings" class="header-btn" title="Settings" style="color: #38bdf8 !important; font-size: 22px !important; font-family: sans-serif !important; display: flex !important; align-items: center !important;">&#9881;</button>
+      <button id="btn-settings" class="header-btn" title="Settings" style="color: #38bdf8 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+      </button>
     </div>
   </header>
 
@@ -716,8 +719,9 @@
     <button class="tab" data-tab="archived">Archived <span class="tab-count" id="count-archived">0</span></button>
   </div>
 
-  <div id="get-jd-container" style="padding: 12px 16px !important; background: rgba(15, 23, 42, 0.5) !important; border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important; display: flex !important; align-items: center !important;">
-    <button id="btn-get-jd" style="width: 100% !important; padding: 12px !important; background: #10b981 !important; color: #000000 !important; border: none !important; border-radius: 8px !important; font-weight: 800 !important; font-size: 13px !important; letter-spacing: 0.08em !important; text-transform: uppercase !important; font-family: 'Space Grotesk', 'Orbitron', 'Inter', sans-serif !important; cursor: pointer !important; transition: opacity 0.15s !important;">Get Job Description</button>
+  <div id="get-jd-container" style="padding: 12px 16px !important; background: rgba(15, 23, 42, 0.5) !important; border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important; display: flex !important; align-items: center !important; gap: 12px !important;">
+    <button id="btn-get-jd" style="flex: 1 !important; padding: 12px !important; background: #10b981 !important; color: #000000 !important; border: none !important; border-radius: 8px !important; font-weight: 800 !important; font-size: 13px !important; letter-spacing: 0.05em !important; text-transform: uppercase !important; font-family: 'Space Grotesk', 'Orbitron', 'Inter', sans-serif !important; cursor: pointer !important; transition: opacity 0.15s !important;">Get JD From Page</button>
+    <button id="btn-ai-apply" style="flex: 1 !important; padding: 12px !important; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%) !important; color: #ffffff !important; border: none !important; border-radius: 8px !important; font-weight: 800 !important; font-size: 13px !important; letter-spacing: 0.05em !important; text-transform: uppercase !important; font-family: 'Space Grotesk', 'Orbitron', 'Inter', sans-serif !important; cursor: pointer !important; transition: opacity 0.15s !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: 4px !important;">AI Apply ✨</button>
   </div>
 
   <div class="tracker-filters" id="tracker-filters" style="display: flex;">

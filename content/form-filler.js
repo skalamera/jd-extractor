@@ -647,14 +647,32 @@ const FormFiller = {
         element.closest('[role="combobox"]') != null ||
         this.isGreenhouseRemixComboboxInput(element) ||
         (() => {
-          const host = element.getRootNode()?.host;
-          const chain = [element, host].filter(Boolean);
-          for (const el of chain) {
-            if (/typeahead|autocomplete|combobox|search/i.test(el.className || '') ||
-                /typeahead|autocomplete|combobox|search/i.test(el.tagName || '')) {
+          let curr = element;
+          let depth = 0;
+          while (curr && curr !== document.body && depth < 6) {
+            const autoId = curr.getAttribute?.('data-automation-id') || '';
+            const className = curr.className || '';
+            const tagName = curr.tagName.toLowerCase();
+            if (/typeahead|autocomplete|combobox|search|select|dropdown/i.test(autoId) ||
+                /typeahead|autocomplete|combobox|search|select|dropdown/i.test(className) ||
+                tagName === 'select' ||
+                curr.getAttribute?.('role') === 'combobox') {
               return true;
             }
+            // Check shadow root host if present
+            const host = curr.getRootNode()?.host;
+            if (host) {
+              const hostAutoId = host.getAttribute?.('data-automation-id') || '';
+              const hostClassName = host.className || '';
+              if (/typeahead|autocomplete|combobox|search|select|dropdown/i.test(hostAutoId) ||
+                  /typeahead|autocomplete|combobox|search|select|dropdown/i.test(hostClassName)) {
+                return true;
+              }
+            }
+            curr = curr.parentElement;
+            depth++;
           }
+
           const container = element.closest('.field, [class*="input"], [class*="wrapper"]');
           if (container) {
             if (container.tagName.toLowerCase().includes('spl-') && !container.querySelector('spl-select, [class*="select"]')) {
@@ -819,60 +837,116 @@ const FormFiller = {
   },
 
   async pickTypeaheadOption(input, value) {
-    if (this.isDateRelated(input)) {
-      const v = String(value).trim().toLowerCase();
-      if (v === 'not provided' || v === 'unknown' || v === 'none' || v === 'null') {
-        console.log(`[JobAutoFill] Intercepted and skipped invalid date string "${value}" for calendar field`);
-        return true; // return success safely without writing
-      }
-    }
-
     const interact = this.getComboboxInteractTarget(input);
     const valueStr = String(value).trim();
     const valueLower = valueStr.toLowerCase();
 
-    // 1. Type the search string
-    await this.typeValueIncrementally(input, valueStr);
-    await this.delay(150);
+    console.log(`[JobAutoFill Typeahead] pickTypeaheadOption started for value="${valueStr}". Input element:`, input, `Interact target:`, interact);
+
+    if (this.isDateRelated(input)) {
+      const v = String(value).trim().toLowerCase();
+      if (v === 'not provided' || v === 'unknown' || v === 'none' || v === 'null') {
+        console.log(`[JobAutoFill Typeahead] Intercepted and skipped invalid date string "${value}" for calendar field`);
+        return true; // return success safely without writing
+      }
+    }
+
+    // 0. Click combobox/select dropdown elements to focus / open them
+    const tagName = interact.tagName.toLowerCase();
+    const isEditable = tagName === 'input' || tagName === 'textarea';
+    
+    console.log(`[JobAutoFill Typeahead] Element isEditable=${isEditable} (tagName=${tagName})`);
+    
+    // Always dispatch a click or focus to trigger page listeners
+    try {
+      console.log(`[JobAutoFill Typeahead] Dispatching click to open dropdown listbox...`);
+      interact.click();
+      await this.delay(200);
+    } catch (e) {
+      console.warn(`[JobAutoFill Typeahead] Click on interact element failed:`, e);
+    }
+
+    // 1. Compute truncated search query and type if editable
+    let searchQuery = valueStr;
+    if (valueStr.length > 15) {
+      const words = valueStr.split(/\s+/);
+      if (words.length > 3) {
+        searchQuery = words.slice(0, 3).join(' ');
+      }
+      if (searchQuery.length > 25) {
+        searchQuery = searchQuery.substring(0, 25);
+      }
+      searchQuery = searchQuery.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '').trim();
+    }
+
+    if (isEditable) {
+      console.log(`[JobAutoFill Typeahead] Typing search string: "${searchQuery}"`);
+      await this.typeValueIncrementally(input, searchQuery);
+      await this.delay(150);
+    } else {
+      console.log(`[JobAutoFill Typeahead] Skip typing because element is non-editable`);
+    }
 
     // 2. Open dropdown using keyboard
+    console.log(`[JobAutoFill Typeahead] Pressing ArrowDown to trigger listbox rendering`);
     await this.fireKey(interact, 'ArrowDown', 'ArrowDown', 40);
 
     // 3. Wait for options to render
+    console.log(`[JobAutoFill Typeahead] Waiting for options to render in listbox...`);
     const { lb, visible } = await this.waitForOptions(interact);
+    console.log(`[JobAutoFill Typeahead] waitForOptions returned listbox:`, lb, `visible options count:`, visible.length);
+    
     if (!visible.length) {
-      console.log("[Clyde Apply] No dropdown options rendered for:", valueStr);
+      console.log(`[JobAutoFill Typeahead] No dropdown options rendered for: "${valueStr}"`);
       return false;
     }
 
-    // 4. Find the best match option
+    // Print all options for debugging
+    console.log(`[JobAutoFill Typeahead] Rendered options:`, visible.map(o => o.textContent?.trim()));
+
+    // 4. Find the best match option using punctuation-insensitive comparisons
+    const cleanPunctuation = (s) => String(s || '').replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const cleanValue = cleanPunctuation(valueStr);
+
     const exactMatch = visible.find(opt => {
       const txt = opt.textContent?.trim().toLowerCase();
-      return txt === valueLower || this.normalizeChoiceText(txt) === this.normalizeChoiceText(valueStr);
+      return txt === valueLower || 
+             this.normalizeChoiceText(txt) === this.normalizeChoiceText(valueStr) ||
+             cleanPunctuation(txt) === cleanValue;
     });
 
     const partialMatch = exactMatch || visible.find(opt => {
       const txt = opt.textContent?.trim().toLowerCase();
-      return txt.includes(valueLower) || valueLower.includes(txt);
+      const cleanTxt = cleanPunctuation(txt);
+      return txt.includes(valueLower) || 
+             valueLower.includes(txt) || 
+             cleanTxt.includes(cleanValue) || 
+             cleanValue.includes(cleanTxt);
     });
 
     const target = partialMatch || visible[0];
+    console.log(`[JobAutoFill Typeahead] Exact match:`, exactMatch ? exactMatch.textContent?.trim() : 'none', 
+                `Partial match:`, partialMatch ? partialMatch.textContent?.trim() : 'none',
+                `Selected target option:`, target ? target.textContent?.trim() : 'none');
 
     if (target) {
       // framework-safe pointer events + click
       target.scrollIntoView({ block: 'nearest' });
       try {
+        console.log(`[JobAutoFill Typeahead] Dispatching mouse events and clicking option:`, target.textContent?.trim());
         target.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
         target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
         target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
         target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
         target.click();
-        await this.delay(150);
+        await this.delay(250); // wait a bit more for React state updates
       } catch (e) {
+        console.warn(`[JobAutoFill Typeahead] Failed to click option via events, standard click fallback:`, e);
         target.click();
       }
       
       // Dispatch events on input
+      console.log(`[JobAutoFill Typeahead] Dispatching change/input events on input`);
       input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
       input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
       if (input !== interact) {

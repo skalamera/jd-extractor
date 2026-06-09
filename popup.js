@@ -1,3 +1,20 @@
+// Sidebar Layout Adjustment
+if (window.location.search.includes('sidebar=true')) {
+  document.body.style.setProperty('width', '100%', 'important');
+  document.body.style.height = '100vh';
+  document.body.style.display = 'flex';
+  document.body.style.flexDirection = 'column';
+  document.body.style.overflow = 'hidden';
+  
+  // Create stylesheet to override style blocks
+  const style = document.createElement('style');
+  style.textContent = `
+    body { width: 100% !important; height: 100vh !important; }
+    #clips-container { max-height: none !important; flex: 1 !important; overflow-y: auto !important; }
+  `;
+  document.head.appendChild(style);
+}
+
 const container = document.getElementById("clips-container");
 const tabs = document.querySelectorAll(".tab");
 const trackerFilters = document.getElementById("tracker-filters");
@@ -12,6 +29,7 @@ const btnReplaceRes = document.getElementById("btn-replace-res");
 const btnDlPlain = document.getElementById("btn-dl-plain");
 const popupResumeInput = document.getElementById("popup-resume-input");
 const btnGetJd = document.getElementById("btn-get-jd");
+const btnAiApplyHeader = document.getElementById("btn-ai-apply");
 
 let currentTab = "clips";
 let filterDate = null;
@@ -137,6 +155,20 @@ if (btnGetJd) {
       btnGetJd.disabled = false;
       btnGetJd.textContent = originalText;
     }, 2000);
+  });
+}
+
+if (btnAiApplyHeader) {
+  btnAiApplyHeader.addEventListener("click", async () => {
+    if (activeClipIdx === null) {
+      if (allClips.length > 0) {
+        activeClipIdx = 0;
+      } else {
+        alert("Please extract a job description first or set an active JD.");
+        return;
+      }
+    }
+    await handleAiApply(activeClipIdx, btnAiApplyHeader);
   });
 }
 
@@ -753,7 +785,13 @@ async function handleAiApply(clipIdx, applyBtn) {
     await chrome.tabs.sendMessage(tab.id, { type: 'START_AUTOFILL' });
     
     applyBtn.textContent = "Started!";
-    setTimeout(() => window.close(), 1500);
+    if (window.location.search.includes('sidebar=true')) {
+      setTimeout(() => {
+        window.parent.postMessage({ type: 'CLOSE_SIDEBAR' }, '*');
+      }, 1500);
+    } else {
+      setTimeout(() => window.close(), 1500);
+    }
   } catch (e) {
     alert(`Error: ${e.message}`);
     applyBtn.disabled = false;
@@ -917,7 +955,7 @@ if (btnGuide) {
 }
 
 chrome.storage.onChanged.addListener((changes, namespace) => {
-  if (namespace === 'local' && changes.clips) {
+  if (namespace === 'local' && (changes.clips || changes.activeClipIdx || changes.activeResumeText)) {
     load();
   }
 });
