@@ -339,7 +339,7 @@ const FormFiller = {
       case 'radio':
         return this.fillRadio(element, value);
       case 'checkbox':
-        return this.fillCheckbox(element, value);
+        return this.fillCheckbox(element, value, purpose, label);
       case 'checkbox-group':
         return this.fillCheckboxGroup(element, value);
       case 'custom-dropdown':
@@ -644,17 +644,21 @@ const FormFiller = {
         element.getAttribute('aria-autocomplete') != null ||
         element.getAttribute('aria-haspopup') != null ||
         element.getAttribute('list') != null ||
+        element.tagName.toLowerCase() === 'button' ||
+        element.getAttribute('role') === 'button' ||
+        element.tagName.toLowerCase() === 'select' ||
         element.closest('[role="combobox"]') != null ||
         this.isGreenhouseRemixComboboxInput(element) ||
         (() => {
           let curr = element;
           let depth = 0;
-          while (curr && curr !== document.body && depth < 6) {
+          while (curr && curr !== document.body && depth < 8) {
             const autoId = curr.getAttribute?.('data-automation-id') || '';
             const className = curr.className || '';
             const tagName = curr.tagName.toLowerCase();
             if (/typeahead|autocomplete|combobox|search|select|dropdown/i.test(autoId) ||
                 /typeahead|autocomplete|combobox|search|select|dropdown/i.test(className) ||
+                /typeahead|autocomplete|combobox|search|select|dropdown/i.test(tagName) ||
                 tagName === 'select' ||
                 curr.getAttribute?.('role') === 'combobox') {
               return true;
@@ -664,18 +668,24 @@ const FormFiller = {
             if (host) {
               const hostAutoId = host.getAttribute?.('data-automation-id') || '';
               const hostClassName = host.className || '';
+              const hostTagName = host.tagName.toLowerCase();
               if (/typeahead|autocomplete|combobox|search|select|dropdown/i.test(hostAutoId) ||
-                  /typeahead|autocomplete|combobox|search|select|dropdown/i.test(hostClassName)) {
+                  /typeahead|autocomplete|combobox|search|select|dropdown/i.test(hostClassName) ||
+                  /typeahead|autocomplete|combobox|search|select|dropdown/i.test(hostTagName)) {
                 return true;
               }
             }
-            curr = curr.parentElement;
+            
+            const nextNode = curr.parentElement || curr.getRootNode()?.host;
+            curr = (nextNode && nextNode !== curr) ? nextNode : null;
             depth++;
           }
 
           const container = element.closest('.field, [class*="input"], [class*="wrapper"]');
           if (container) {
-            if (container.tagName.toLowerCase().includes('spl-') && !container.querySelector('spl-select, [class*="select"]')) {
+            if (container.tagName.toLowerCase().includes('spl-') && 
+                !/select|autocomplete|typeahead|combobox/i.test(container.tagName) &&
+                !container.querySelector('spl-select, [class*="select"]')) {
                return false;
             }
             if (container.querySelector('svg, .icon, [class*="icon"], [class*="search"]') || 
@@ -688,6 +698,7 @@ const FormFiller = {
       );
 
     const locationLike = this.fieldHintsLookLikeLocation(element, purpose, label);
+    console.log(`[JobAutoFill Debug] fillTextInput: element=${element.tagName}#${element.id}.${element.className}, label="${inputLabel}", value="${value}", isDate=${isDate}, isTypeahead=${isTypeahead}`);
 
     if (isTypeahead) {
       if (locationLike) await this.delay(200);
@@ -816,8 +827,8 @@ const FormFiller = {
       if (listbox && this.isVisibleOption(listbox)) return listbox;
       current = current.parentNode || current.host;
     }
-    // Search globally using native querySelector (blazingly fast fallback inside loops)
-    const globalLb = document.querySelector('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"], sf-typeahead, spl-overlay, sf-overlay, sf-list-box, spl-list-box, sf-typeahead-items');
+    // Search globally using querySelectorDeep (crosses shadow boundaries)
+    const globalLb = this.querySelectorDeep('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"], sf-typeahead, spl-overlay, sf-overlay, sf-list-box, spl-list-box, sf-typeahead-items');
     if (globalLb && this.isVisibleOption(globalLb)) return globalLb;
     return null;
   },
@@ -1106,8 +1117,10 @@ const FormFiller = {
     return '';
   },
 
-  fillCheckbox(element, value) {
-    const shouldCheck = /^(yes|true|1|checked|agree)$/i.test(String(value));
+  fillCheckbox(element, value, purpose = '', label = '') {
+    const shouldCheck = /^(yes|true|1|checked|agree|acknowledge|accept|statement|disclosure)$/i.test(String(value)) ||
+                        /agree|acknowledge|accept|statement|disclosure|philosophy/i.test(String(purpose || '')) ||
+                        /agree|acknowledge|accept|statement|disclosure|philosophy/i.test(String(label || ''));
     if (element.checked !== shouldCheck) {
       element.checked = shouldCheck;
       element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
@@ -1157,12 +1170,22 @@ const FormFiller = {
   },
 
   async fillCustomDropdown(element, value) {
-    // Click to open the dropdown
-    element.click();
+    // Click to open the dropdown (using framework-safe events)
+    try {
+      element.scrollIntoView({ block: 'nearest' });
+      element.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, composed: true }));
+      element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, composed: true }));
+      element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+      element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }));
+      element.click();
+      element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, composed: true }));
+      element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }));
+    } catch (e) {
+      element.click();
+    }
     await this.delay(300);
 
     // Look for dropdown options that appeared
-    const valueLower = String(value).toLowerCase().trim();
     const optionSelectors = [
       '[role="option"]', '[role="listbox"] li', '.dropdown-option',
       '.select-option', '[class*="option"]', 'li[data-value]',
@@ -1170,11 +1193,20 @@ const FormFiller = {
     ];
 
     for (const selector of optionSelectors) {
-      const options = document.querySelectorAll(selector);
+      const options = this.querySelectorAllDeep(selector);
       for (const option of options) {
-        if (option.textContent.trim().toLowerCase().includes(valueLower) ||
-            valueLower.includes(option.textContent.trim().toLowerCase())) {
-          option.click();
+        const optionText = option.textContent.trim();
+        const optionVal = option.getAttribute('data-value') || '';
+        if (this.matchesChoice(optionText, optionVal, value) ||
+            optionText.toLowerCase().includes(String(value).toLowerCase().trim()) ||
+            String(value).toLowerCase().trim().includes(optionText.toLowerCase())) {
+          
+          try {
+            option.scrollIntoView({ block: 'nearest' });
+            option.click();
+          } catch (e) {
+            option.click();
+          }
           return true;
         }
       }

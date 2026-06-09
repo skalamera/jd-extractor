@@ -921,6 +921,11 @@ async function handleAiApply(clipIdx, applyBtn) {
     await chrome.tabs.sendMessage(tab.id, { type: 'START_AUTOFILL' });
     
     applyBtn.textContent = "Started!";
+    setTimeout(() => {
+      applyBtn.disabled = false;
+      applyBtn.textContent = originalText;
+    }, 5000);
+    
     if (window.location.search.includes('sidebar=true')) {
       setTimeout(() => {
         window.parent.postMessage({ type: 'CLOSE_SIDEBAR' }, '*');

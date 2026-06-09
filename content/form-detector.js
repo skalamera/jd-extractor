@@ -113,6 +113,39 @@ function querySelectorDeep(selector, root = document) {
 }
 
 function getFieldLabel(element) {
+  const label = _getFieldLabelRaw(element);
+  if (label && isSystemId(label)) {
+    return '';
+  }
+  return label;
+}
+
+function isSystemId(str) {
+  if (!str) return false;
+  const clean = str.trim();
+  if (clean.includes(' ')) return false;
+  
+  // Workday dynamic IDs: e.g. Ix5yx, Ix5y10, etc.
+  if (/^[Ii]x5[a-zA-Z0-9]+$/.test(clean)) return true;
+  
+  // General system ID check (no vowels, or mixed letters and numbers like a hash)
+  if (/^[a-zA-Z0-9]{4,15}$/.test(clean)) {
+    // If it has numbers, and isn't a common form word
+    if (/\d/.test(clean)) {
+      if (/^(address|addr|phone|zip|salary|date|year|month|day|option|choice|field)\d+$/i.test(clean)) {
+        return false;
+      }
+      return true;
+    }
+    // If it has no vowels (excluding y) and is not a short abbreviation
+    if (!/[aeiouAEIOU]/.test(clean) && clean.length > 3) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function _getFieldLabelRaw(element) {
   // 1. Explicit label via for attribute
   if (element.id) {
     const label = querySelectorDeep(`label[for="${CSS.escape(element.id)}"]`);

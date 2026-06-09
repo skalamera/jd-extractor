@@ -99,17 +99,47 @@ PortalHandlers.register({
     });
 
     // Custom dropdowns (Workday uses div-based dropdowns)
-    document.querySelectorAll('[data-automation-id*="dropdown"], [data-automation-id*="select"]').forEach(el => {
+    const customDropdowns = FormFiller.querySelectorAllDeep('[data-automation-id*="dropdown"], [data-automation-id*="select"], [data-automation-id*="prompt"], [data-automation-id*="combobox"], [role="combobox"]');
+    console.log(`[Workday Debug] Custom dropdowns query matched ${customDropdowns.length} elements.`);
+
+    customDropdowns.forEach(el => {
       if (processed.has(el)) return;
 
       // Skip fields inside custom-filled sections
       if (isCustomFilledField(el)) return;
 
-      const label = el.closest('[data-automation-id]')?.querySelector('label')?.textContent?.trim() ||
-        el.getAttribute('aria-label') || '';
+      // Skip outer containers to target only the leaf interactive element (e.g. select-button)
+      if (el.querySelector('[data-automation-id*="dropdown"], [data-automation-id*="select"], [data-automation-id*="prompt"], [data-automation-id*="combobox"], [role="combobox"]')) {
+        return;
+      }
+
+      processed.add(el);
+
+      // Find label by climbing up the tree and searching for a label element in each ancestor
+      let label = '';
+      let curr = el;
+      for (let i = 0; i < 5 && curr; i++) {
+        const lbl = curr.querySelector('label, [class*="label"], legend');
+        if (lbl && lbl.textContent.trim()) {
+          label = lbl.textContent.trim();
+          break;
+        }
+        curr = curr.parentElement;
+      }
+
+      if (!label) {
+        label = el.getAttribute('aria-label') || '';
+      }
+
+      console.log(`[Workday Debug] Dropdown candidate: tag=${el.tagName}, id=${el.id}, automationId=${el.getAttribute('data-automation-id') || ''}, resolved label="${label}"`);
+
       if (label) {
+        const parentFormField = el.closest('[data-automation-id*="formField"]');
+        const formFieldId = parentFormField?.getAttribute('data-automation-id');
+        const uniqueId = formFieldId || el.id || el.getAttribute('data-automation-id') || `wd_dropdown_${fields.length}`;
+
         fields.push({
-          id: el.getAttribute('data-automation-id') || `wd_${fields.length}`,
+          id: uniqueId,
           label,
           element: el,
           fieldType: 'custom-dropdown',

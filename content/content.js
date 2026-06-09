@@ -14,6 +14,7 @@
 
     if (sidebarIframe) {
       if (sidebarIframe.style.display === 'none') {
+        sidebarIframe.src = chrome.runtime.getURL('popup.html?sidebar=true');
         sidebarIframe.style.display = 'block';
         setTimeout(() => {
           sidebarIframe.style.opacity = '1';
