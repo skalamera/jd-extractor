@@ -83,13 +83,46 @@ PortalHandlers.register({
   },
 
   getJobDescription() {
-    const desc = document.querySelector('.jobs-description__content, .job-view-layout .description__text, #job-details');
-    return desc?.textContent?.trim() || '';
+    // 1. Try to find the description inside the main active job details container
+    const detailsContainer = document.querySelector('.jobs-search-two-pane__details, .jobs-search__job-details--container, .jobs-search__job-details, .job-view-layout');
+    if (detailsContainer) {
+      const desc = detailsContainer.querySelector('.jobs-description__content, .description__text, .jobs-box__html-content, .show-more-less-html__markup, .jobs-description-content__text, #job-details');
+      if (desc) {
+        const text = desc.textContent?.trim();
+        if (text) return text;
+      }
+    }
+
+    // 2. Fallback to #job-details directly (since it is a unique ID for the active details)
+    const jobDetails = document.getElementById('job-details');
+    if (jobDetails) {
+      const text = jobDetails.textContent?.trim();
+      if (text) return text;
+    }
+
+    // 3. Fallback to document-wide selectors, prioritizing specific ones
+    const fallbackDesc = document.querySelector('.job-view-layout .description__text, .jobs-description__content');
+    return fallbackDesc?.textContent?.trim() || '';
   },
 
   getJobInfo() {
-    const title = document.querySelector('.job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title, h1.t-24')?.textContent?.trim() || '';
-    const company = document.querySelector('.job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name, .company-name')?.textContent?.trim() || '';
+    const detailsContainer = document.querySelector('.jobs-search-two-pane__details, .jobs-search__job-details--container, .jobs-search__job-details, .job-view-layout');
+    
+    let title = '';
+    let company = '';
+    
+    if (detailsContainer) {
+      title = detailsContainer.querySelector('.job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title, h1.t-24, h2')?.textContent?.trim() || '';
+      company = detailsContainer.querySelector('.job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name, .company-name')?.textContent?.trim() || '';
+    }
+    
+    if (!title) {
+      title = document.querySelector('.job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title, h1.t-24')?.textContent?.trim() || '';
+    }
+    if (!company) {
+      company = document.querySelector('.job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name, .company-name')?.textContent?.trim() || '';
+    }
+    
     return { title, company };
   },
 

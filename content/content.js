@@ -83,35 +83,43 @@
         }, 300);
       }
     } else if (event.data && event.data.type === 'CLYDE_EXTRACT_REQUEST') {
-      const clone = document.body.cloneNode(true);
-      const stripTags = ['script', 'style', 'noscript', 'code', 'iframe', 'header', 'footer', 'nav'];
-      for (const tag of stripTags) {
-        clone.querySelectorAll(tag).forEach(el => el.remove());
+      let textToExtract = "";
+      const handler = PortalHandlers.detect();
+      if (handler && typeof handler.getJobDescription === 'function') {
+        textToExtract = handler.getJobDescription() || "";
       }
 
-      let textToExtract = clone.innerText || "";
-      const selectors = [
-        '.show-more-less-html__markup',
-        '.jobs-box__html-content',
-        '.jobs-description-content__text',
-        '.jobs-description__content',
-        '.jobs-search__job-details--container',
-        '.jobs-description',
-        '.job-description', 
-        '#job-description',
-        '[data-automation-id="jobPostingDescription"]',
-        '[data-automation-id="job-posting-description"]'
-      ];
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el && el.innerText && el.innerText.trim().length > 200) {
-          const elClone = el.cloneNode(true);
-          for (const tag of stripTags) {
-            elClone.querySelectorAll(tag).forEach(e => e.remove());
-          }
-          if (elClone.innerText && elClone.innerText.trim().length > 100) {
-            textToExtract = elClone.innerText;
-            break;
+      if (!textToExtract) {
+        const clone = document.body.cloneNode(true);
+        const stripTags = ['script', 'style', 'noscript', 'code', 'iframe', 'header', 'footer', 'nav'];
+        for (const tag of stripTags) {
+          clone.querySelectorAll(tag).forEach(el => el.remove());
+        }
+
+        textToExtract = clone.innerText || "";
+        const selectors = [
+          '.show-more-less-html__markup',
+          '.jobs-box__html-content',
+          '.jobs-description-content__text',
+          '.jobs-description__content',
+          '.jobs-search__job-details--container',
+          '.jobs-description',
+          '.job-description', 
+          '#job-description',
+          '[data-automation-id="jobPostingDescription"]',
+          '[data-automation-id="job-posting-description"]'
+        ];
+        for (const sel of selectors) {
+          const el = document.querySelector(sel);
+          if (el && el.innerText && el.innerText.trim().length > 200) {
+            const elClone = el.cloneNode(true);
+            for (const tag of stripTags) {
+              elClone.querySelectorAll(tag).forEach(e => e.remove());
+            }
+            if (elClone.innerText && elClone.innerText.trim().length > 100) {
+              textToExtract = elClone.innerText;
+              break;
+            }
           }
         }
       }
@@ -1452,35 +1460,43 @@
       toggleSidebar();
       sendResponse({ ok: true });
     } else if (message.type === 'EXTRACT_JD_FROM_PAGE') {
-      const clone = document.body.cloneNode(true);
-      const stripTags = ['script', 'style', 'noscript', 'code', 'iframe', 'header', 'footer', 'nav'];
-      for (const tag of stripTags) {
-        clone.querySelectorAll(tag).forEach(el => el.remove());
+      let textToExtract = "";
+      const handler = PortalHandlers.detect();
+      if (handler && typeof handler.getJobDescription === 'function') {
+        textToExtract = handler.getJobDescription() || "";
       }
 
-      let textToExtract = clone.innerText || "";
-      const selectors = [
-        '.show-more-less-html__markup',
-        '.jobs-box__html-content',
-        '.jobs-description-content__text',
-        '.jobs-description__content',
-        '.jobs-search__job-details--container',
-        '.jobs-description',
-        '.job-description', 
-        '#job-description',
-        '[data-automation-id="jobPostingDescription"]',
-        '[data-automation-id="job-posting-description"]'
-      ];
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el && el.innerText && el.innerText.trim().length > 200) {
-          const elClone = el.cloneNode(true);
-          for (const tag of stripTags) {
-            elClone.querySelectorAll(tag).forEach(e => e.remove());
-          }
-          if (elClone.innerText && elClone.innerText.trim().length > 100) {
-            textToExtract = elClone.innerText;
-            break;
+      if (!textToExtract) {
+        const clone = document.body.cloneNode(true);
+        const stripTags = ['script', 'style', 'noscript', 'code', 'iframe', 'header', 'footer', 'nav'];
+        for (const tag of stripTags) {
+          clone.querySelectorAll(tag).forEach(el => el.remove());
+        }
+
+        textToExtract = clone.innerText || "";
+        const selectors = [
+          '.show-more-less-html__markup',
+          '.jobs-box__html-content',
+          '.jobs-description-content__text',
+          '.jobs-description__content',
+          '.jobs-search__job-details--container',
+          '.jobs-description',
+          '.job-description', 
+          '#job-description',
+          '[data-automation-id="jobPostingDescription"]',
+          '[data-automation-id="job-posting-description"]'
+        ];
+        for (const sel of selectors) {
+          const el = document.querySelector(sel);
+          if (el && el.innerText && el.innerText.trim().length > 200) {
+            const elClone = el.cloneNode(true);
+            for (const tag of stripTags) {
+              elClone.querySelectorAll(tag).forEach(e => e.remove());
+            }
+            if (elClone.innerText && elClone.innerText.trim().length > 100) {
+              textToExtract = elClone.innerText;
+              break;
+            }
           }
         }
       }
