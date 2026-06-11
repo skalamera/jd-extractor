@@ -305,6 +305,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const clydeHostInput = document.getElementById('clyde-host');
   const clydePortInput = document.getElementById('clyde-port');
+  const clydePairingTokenInput = document.getElementById('clyde-pairing-token');
   const clydeAutoSync = document.getElementById('clyde-auto-sync');
   const clydePullResume = document.getElementById('clyde-pull-resume');
   const clydeTestBtn = document.getElementById('clyde-test-btn');
@@ -325,11 +326,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Load Clyde settings
   const clydeData = await chrome.storage.local.get([
-    'clydeHost', 'clydePort', 'clydeAutoSync', 'clydePullResume'
+    'clydeHost', 'clydePort', 'clydePairingToken', 'clydeAutoSync', 'clydePullResume'
   ]);
 
   if (clydeData.clydeHost) clydeHostInput.value = clydeData.clydeHost;
   if (clydeData.clydePort) clydePortInput.value = clydeData.clydePort;
+  if (clydeData.clydePairingToken) clydePairingTokenInput.value = clydeData.clydePairingToken;
   if (clydeData.clydeAutoSync) clydeAutoSync.checked = true;
   if (clydeData.clydePullResume) clydePullResume.checked = true;
 
@@ -339,7 +341,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const clydeClient = await loadClydeClient();
       const result = await clydeClient.isAvailable({
         host: clydeHostInput.value,
-        port: parseInt(clydePortInput.value) || 4593
+        port: parseInt(clydePortInput.value) || 4593,
+        pairingToken: clydePairingTokenInput.value.trim()
       });
       if (result.available) {
         setClydeBadge(`Connected ${'\u{1F7E2}'}`, true);
@@ -364,7 +367,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const clydeClient = await loadClydeClient();
       const result = await clydeClient.isAvailable({
         host: clydeHostInput.value,
-        port: parseInt(clydePortInput.value) || 4593
+        port: parseInt(clydePortInput.value) || 4593,
+        pairingToken: clydePairingTokenInput.value.trim()
       });
       if (result.available) {
         setClydeStatus(`Connected! Clyde v${result.version || 'unknown'}`, 'success');
@@ -465,6 +469,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await chrome.storage.local.set({
       clydeHost: clydeHostInput.value.trim(),
       clydePort: parseInt(clydePortInput.value) || 4593,
+      clydePairingToken: clydePairingTokenInput.value.trim(),
       clydeAutoSync: clydeAutoSync.checked,
       clydePullResume: clydePullResume.checked
     });

@@ -49,7 +49,17 @@
   ],
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "*://*.myworkdayjobs.com/*",
+        "*://*.smartrecruiters.com/*",
+        "*://boards.greenhouse.io/*",
+        "*://job-boards.greenhouse.io/*",
+        "*://jobs.lever.co/*",
+        "*://*.ashbyhq.com/*",
+        "*://*.icims.com/*",
+        "*://*.taleo.net/*",
+        "*://*.linkedin.com/jobs/*"
+      ],
       "all_frames": true,
       "js": [
         "lib/escape.js",

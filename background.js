@@ -191,8 +191,24 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // Toggle on-page sidebar iframe when clicking the browser extension toolbar action icon
 chrome.action.onClicked.addListener((tab) => {
   if (tab && tab.id) {
-    chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR' }).catch(() => {
-      // Safe fallback if content scripts aren't loaded or active on this specific tab URL (like chrome://)
+    chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR' }).catch(async () => {
+      // Content scripts not loaded automatically. Inject them programmatically using activeTab!
+      try {
+        const manifest = chrome.runtime.getManifest();
+        const jsFiles = manifest.content_scripts[0].js;
+        
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id, allFrames: true },
+          files: jsFiles
+        });
+        
+        // Wait a split-second for initialization, then toggle
+        setTimeout(() => {
+          chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR' }).catch(() => {});
+        }, 150);
+      } catch (err) {
+        console.error('[background] ActiveTab content script injection failed:', err.message);
+      }
     });
   }
 });
@@ -298,35 +314,45 @@ async function handleExtractFromSidebar() {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: () => {
-          const clone = document.body.cloneNode(true);
-          const stripTags = ['script', 'style', 'noscript', 'code', 'iframe', 'header', 'footer', 'nav'];
-          for (const tag of stripTags) {
-            clone.querySelectorAll(tag).forEach(el => el.remove());
+          let textToExtract = "";
+          if (typeof PortalHandlers !== 'undefined' && typeof PortalHandlers.detect === 'function') {
+            const handler = PortalHandlers.detect();
+            if (handler && typeof handler.getJobDescription === 'function') {
+              textToExtract = handler.getJobDescription() || "";
+            }
           }
 
-          let textToExtract = clone.innerText || "";
-          const selectors = [
-            '.show-more-less-html__markup',
-            '.jobs-box__html-content',
-            '.jobs-description-content__text',
-            '.jobs-description__content',
-            '.jobs-search__job-details--container',
-            '.jobs-description',
-            '.job-description', 
-            '#job-description',
-            '[data-automation-id="jobPostingDescription"]',
-            '[data-automation-id="job-posting-description"]'
-          ];
-          for (const sel of selectors) {
-            const el = document.querySelector(sel);
-            if (el && el.innerText && el.innerText.trim().length > 200) {
-              const elClone = el.cloneNode(true);
-              for (const tag of stripTags) {
-                elClone.querySelectorAll(tag).forEach(e => e.remove());
-              }
-              if (elClone.innerText && elClone.innerText.trim().length > 100) {
-                textToExtract = elClone.innerText;
-                break;
+          if (!textToExtract) {
+            const clone = document.body.cloneNode(true);
+            const stripTags = ['script', 'style', 'noscript', 'code', 'iframe', 'header', 'footer', 'nav'];
+            for (const tag of stripTags) {
+              clone.querySelectorAll(tag).forEach(el => el.remove());
+            }
+
+            textToExtract = clone.innerText || "";
+            const selectors = [
+              '.show-more-less-html__markup',
+              '.jobs-box__html-content',
+              '.jobs-description-content__text',
+              '.jobs-description__content',
+              '.jobs-search__job-details--container',
+              '.jobs-description',
+              '.job-description', 
+              '#job-description',
+              '[data-automation-id="jobPostingDescription"]',
+              '[data-automation-id="job-posting-description"]'
+            ];
+            for (const sel of selectors) {
+              const el = document.querySelector(sel);
+              if (el && el.innerText && el.innerText.trim().length > 200) {
+                const elClone = el.cloneNode(true);
+                for (const tag of stripTags) {
+                  elClone.querySelectorAll(tag).forEach(e => e.remove());
+                }
+                if (elClone.innerText && elClone.innerText.trim().length > 100) {
+                  textToExtract = elClone.innerText;
+                  break;
+                }
               }
             }
           }
