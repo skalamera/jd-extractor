@@ -145,11 +145,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       resumeTextArea.value = parseResult.text;
       setStatus(resumeStatus, 'Analyzing with AI...', 'loading');
 
+      console.log('[Options UI Log] Sending ANALYZE_RESUME to background service worker...');
       const analysis = await chrome.runtime.sendMessage({
         type: 'ANALYZE_RESUME',
         payload: { resumeText: parseResult.text }
       });
-      if (analysis.error) throw new Error(analysis.error);
+      console.log('[Options UI Log] ANALYZE_RESUME response received:', analysis);
+      if (analysis.error) {
+        console.error('[Options UI Log] Background reported error during analysis:', analysis.error);
+        throw new Error(analysis.error);
+      }
 
       uploadArea.classList.add('has-file');
       uploadText.textContent = file.name;

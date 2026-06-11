@@ -1,13 +1,13 @@
-# jayobee Feature Outline
+# Clyde Go Feature Outline
 
-**jayobee** is an AI-powered Chrome Extension built to act as a centralized, high-efficiency command center for tracking, analyzing, and applying to tech jobs. It eliminates the need for manual spreadsheets and repetitive data entry by leveraging Google's Gemini 2.5 Flash model and robust DOM-traversing automation.
+**Clyde Go** is an AI-powered Chrome Extension built to act as a centralized, high-efficiency command center for tracking, analyzing, and applying to tech jobs. It eliminates the need for manual spreadsheets and repetitive data entry by leveraging Google's Gemini 2.5 Flash model and robust DOM-traversing automation.
 
 ---
 
 ## 1. Automated Job Sourcing & Analysis Pipeline
 
 ### 1.1 Context Menu Clipping
-*   **"Save to jayobee"**: Users highlight any text on any webpage (typically a job description) and right-click to select "Save to jayobee."
+*   **"Save to Clyde Go"**: Users highlight any text on any webpage (typically a job description) and right-click to select "Save to Clyde Go."
 *   **Silent Background Extraction**: The extension instantly grabs the highlighted text and the current URL.
 *   **AI Metadata Generation**: In the background, it securely passes the JD and the user's uploaded master resume to Gemini to silently calculate and extract:
     *   **Job Title**
@@ -43,7 +43,7 @@ Every job card in the popup is highly structured:
 
 ## 2. Generative Document Engine
 
-jayobee utilizes a dual-engine approach to document generation. It can generate beautiful, HTML-styled PDFs for human recruiters, or lightweight, raw text PDFs optimized for ATS systems.
+Clyde Go utilizes a dual-engine approach to document generation. It can generate beautiful, HTML-styled PDFs for human recruiters, or lightweight, raw text PDFs optimized for ATS systems.
 
 ### 2.1 Tailored CV Generation
 *   Clicking **"Resume"** (or **"Both"**) on a clip triggers Gemini.
@@ -72,7 +72,7 @@ jayobee utilizes a dual-engine approach to document generation. It can generate 
 
 ## 3. DOM Automation & Auto-Apply (`form-filler`)
 
-jayobee includes a massive, deeply integrated DOM traversal script capable of interacting with complex Single Page Application (SPA) ATS portals like Workday, Greenhouse, Ashby, and Lever.
+Clyde Go includes a massive, deeply integrated DOM traversal script capable of interacting with complex Single Page Application (SPA) ATS portals like Workday, Greenhouse, Ashby, and Lever.
 
 ### 3.1 "AI Apply" Trigger
 *   Clicking the green **"AI Apply"** button on a JD card locks that specific JD into memory as the "Active" JD and fires a message directly into the active browser tab.
@@ -105,11 +105,11 @@ The sleek Golden Yellow/Charcoal settings dashboard manages the core state of th
 *   **Custom Q&A**: A dynamic list builder where users can map specific question keywords (e.g. "why this role") to exact manual answers, permanently overriding the AI's generation for those specific inputs.
 
 ### 4.3 Data Management
-*   **Export**: Compiles all JD clips, statuses, and scores into a cleanly formatted `jayobee-export.txt` file for local backup.
+*   **Export**: Compiles all JD clips, statuses, and scores into a cleanly formatted `clyde-export-YYYY-MM-DD.txt` file for local backup.
 *   **Clear All**: Nukes the local storage state to reset the pipeline.
 
 ---
 
 ## 5. Right-Click Context Tools
-*   **"Save to jayobee"**: Initializes the primary sourcing pipeline (detailed in 1.1).
+*   **"Save to Clyde Go"**: Initializes the primary sourcing pipeline (detailed in 1.1).
 *   **"Answer with AI"**: Allows users to highlight any custom application question on the fly and right-click to instantly generate an answer. It silently evaluates the question against the Active JD and Active Resume using the strict `career-ops` tone rules, and replaces the highlight with a toast notification once the answer is copied to the clipboard.

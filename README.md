@@ -1,11 +1,11 @@
-# jayobee
+# Clyde Go
 
-**jayobee** is an AI-powered Chrome Extension built to act as a centralized, high-efficiency command center for tracking, analyzing, and applying to tech jobs. It eliminates the need for manual spreadsheets and repetitive data entry by leveraging Google's Gemini 2.5 Flash model and robust DOM-traversing automation.
+**Clyde Go** is an AI-powered Chrome Extension built to act as a centralized, high-efficiency command center for tracking, analyzing, and applying to tech jobs. It eliminates the need for manual spreadsheets and repetitive data entry by leveraging Google's Gemini 2.5 Flash model and robust DOM-traversing automation.
 
 ## 🌟 Core Features
 
 ### 1. Automated Job Sourcing & Analysis Pipeline
-- **Context Menu Clipping**: Highlight any job description on any webpage, right-click, and select "Save to jayobee" to instantly extract the job details.
+- **Context Menu Clipping**: Highlight any job description on any webpage, right-click, and select "Save to Clyde Go" to instantly extract the job details.
 - **AI Metadata Generation**: Automatically extracts Job Title, Company, Location, Archetype, and Compensation.
 - **Match Score & Gap Analysis**: Evaluates the job against your Master Resume to generate a precise 5.0 scale Match Score, identifying your Top Strength, Main Gap, and a Mitigation Strategy for interviews.
 
@@ -31,13 +31,13 @@
 2. Open Google Chrome and navigate to `chrome://extensions/`.
 3. Enable **"Developer mode"** in the top right corner.
 4. Click **"Load unpacked"** and select the root directory of this project (`jd-extractor`).
-5. Pin the **jayobee** extension to your Chrome toolbar for easy access.
+5. Pin the **Clyde Go** extension to your Chrome toolbar for easy access.
 6. Open the extension options, upload your Master Resume (PDF), and configure your settings.
 
 ## 💡 Workflow
 
 1. **Setup**: Upload your master resume and let the AI audit it. Configure your demographics and custom Q&A in the settings page.
-2. **Clip**: Find a job description (e.g., on LinkedIn), highlight it, right-click -> "Save to jayobee".
+2. **Clip**: Find a job description (e.g., on LinkedIn), highlight it, right-click -> "Save to Clyde Go".
 3. **Analyze**: Open the extension popup to see your match score and gap analysis.
 4. **Generate**: Click `Both` to generate a custom CV and Cover Letter. Click `Prep` to prepare for the interview.
 5. **Apply**: Navigate to the application form (Greenhouse, Lever, Workday) and click the green `AI Apply` button in the popup to auto-fill the form and attach your generated resume.
@@ -52,7 +52,7 @@
 ## 🔒 Privacy & Permissions
 - **ActiveTab & Scripting**: Used to read highlighted text and inject the auto-fill scripts into job application portals.
 - **Storage**: Securely stores your Master Resume text, custom settings, and tracked jobs locally on your device.
-- **ContextMenus**: Adds the "Save to jayobee" right-click functionality.
+- **ContextMenus**: Adds the "Save to Clyde Go" right-click functionality.
 - **Offscreen**: Used to quietly parse PDF uploads in the background.
 
 ---

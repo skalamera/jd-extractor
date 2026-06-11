@@ -1628,13 +1628,13 @@
     const container = targetSaveBtn.parentElement;
     if (!container) return;
 
-    let btn = container.querySelector('#jayobee-inline-extract-btn');
+    let btn = container.querySelector('#clyde-go-inline-extract-btn');
     if (!btn) {
-      const existing = document.getElementById('jayobee-inline-extract-btn');
+      const existing = document.getElementById('clyde-go-inline-extract-btn');
       if (existing) existing.remove();
 
       btn = document.createElement('button');
-      btn.id = 'jayobee-inline-extract-btn';
+      btn.id = 'clyde-go-inline-extract-btn';
       btn.style.cssText = `
         background: transparent;
         border: none;
@@ -1857,7 +1857,7 @@
         if (!isContextValid()) return;
 
         if (namespace === 'local' && changes.clips) {
-          const btn = document.getElementById('jayobee-inline-extract-btn');
+          const btn = document.getElementById('clyde-go-inline-extract-btn');
           if (btn) updateButtonState(btn);
         }
       });

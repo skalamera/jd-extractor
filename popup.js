@@ -715,11 +715,16 @@ popupResumeInput.addEventListener("change", async (e) => {
 
     resNameEl.textContent = "Analyzing with AI...";
     
+    console.log('[Popup UI Log] Sending ANALYZE_RESUME to background service worker...');
     const analysis = await chrome.runtime.sendMessage({
       type: 'ANALYZE_RESUME',
       payload: { resumeText: parseResult.text }
     });
-    if (analysis.error) throw new Error(analysis.error);
+    console.log('[Popup UI Log] ANALYZE_RESUME response received:', analysis);
+    if (analysis.error) {
+      console.error('[Popup UI Log] Background reported error during analysis:', analysis.error);
+      throw new Error(analysis.error);
+    }
 
     // Also clear activeResumeText since we uploaded a new master resume
     await chrome.storage.local.remove('activeResumeText');

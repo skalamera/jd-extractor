@@ -524,10 +524,10 @@ Example of good output:
 "Hi Hiring Team, I'm reaching out because I am genuinely interested in the Data Engineer position at Acme Corp. After reviewing the job description, I see a strong alignment with my background. Specifically, your focus on scaling ETL pipelines caught my eye; in my current role, I rebuilt our core data pipeline using Spark and Airflow, reducing processing time by 30%. I believe this experience directly translates to the goals of your data team. I would appreciate the opportunity to connect and discuss how I can contribute. Best regards, Alex"`;
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemInstruction }] },
         contents: [{ role: "user", parts: [{ text: `Resume:\n${resumeText}\n\nJob Description:\n${clip.text}` }] }]
@@ -992,11 +992,11 @@ ${styleGuide}`;
     fetchBody = JSON.stringify({
       systemInstruction,
       contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-      model: 'gemini-3.5-flash'
+      model: 'gemini-2.5-flash'
     });
   } else {
-    fetchUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
-    fetchHeaders = { "Content-Type": "application/json" };
+    fetchUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
+    fetchHeaders = { "Content-Type": "application/json", "x-goog-api-key": apiKey };
     fetchBody = JSON.stringify({
       system_instruction: { parts: [{ text: systemInstruction }] },
       contents: [{ role: "user", parts: [{ text: userPrompt }] }]
@@ -1106,11 +1106,11 @@ async function callGeminiJson(apiKey, systemInstruction, userPrompt, retries = 1
     fetchBody = JSON.stringify({
       systemInstruction,
       contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-      model: 'gemini-3.5-flash'
+      model: 'gemini-2.5-flash'
     });
   } else {
-    fetchUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
-    fetchHeaders = { "Content-Type": "application/json" };
+    fetchUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
+    fetchHeaders = { "Content-Type": "application/json", "x-goog-api-key": apiKey };
     fetchBody = JSON.stringify({
       system_instruction: { parts: [{ text: systemInstruction }] },
       contents: [{ role: "user", parts: [{ text: userPrompt }] }],
@@ -1889,34 +1889,47 @@ async function handleGetResumeFile() {
 }
 
 async function handleAnalyzeResume({ resumeText }) {
+  console.log('[Clyde Robust Log] handleAnalyzeResume initiated. Resume text length:', resumeText?.length || 0);
   const apiKey = await Storage.getApiKey();
+  console.log('[Clyde Robust Log] Resolved API key/Pro status:', apiKey ? 'API Key / Pro exists' : 'None');
   if (!apiKey) throw new Error('Gemini API key not set');
 
   // Save raw text
   await Storage.saveResumeText(resumeText);
+  console.log('[Clyde Robust Log] Saved raw resume text.');
 
   // Analyze with Gemini
-  const structured = await Gemini.analyzeResume(apiKey, resumeText);
-  await Storage.saveStructuredResume(structured);
+  try {
+    console.log('[Clyde Robust Log] Invoking Gemini.analyzeResume...');
+    const structured = await Gemini.analyzeResume(apiKey, resumeText);
+    console.log('[Clyde Robust Log] Gemini.analyzeResume returned successfully. Keys extracted:', Object.keys(structured || {}));
+    
+    await Storage.saveStructuredResume(structured);
+    console.log('[Clyde Robust Log] Structured resume saved to local storage.');
 
-  // Auto-populate profile from structured data
-  const profile = await Storage.getProfile();
-  const merged = {
-    ...profile,
-    fullName: structured.fullName || profile.fullName || '',
-    firstName: structured.firstName || profile.firstName || '',
-    lastName: structured.lastName || profile.lastName || '',
-    email: structured.email || profile.email || '',
-    phone: structured.phone || profile.phone || '',
-    address: { ...(profile.address || {}), ...(structured.address || {}) },
-    linkedinUrl: structured.linkedinUrl || profile.linkedinUrl || '',
-    githubUrl: structured.githubUrl || profile.githubUrl || '',
-    portfolioUrl: structured.portfolioUrl || profile.portfolioUrl || '',
-    yearsOfExperience: structured.yearsOfExperience || profile.yearsOfExperience || 0
-  };
-  await Storage.saveProfile(merged);
+    // Auto-populate profile from structured data
+    const profile = await Storage.getProfile();
+    const merged = {
+      ...profile,
+      fullName: structured.fullName || profile.fullName || '',
+      firstName: structured.firstName || profile.firstName || '',
+      lastName: structured.lastName || profile.lastName || '',
+      email: structured.email || profile.email || '',
+      phone: structured.phone || profile.phone || '',
+      address: { ...(profile.address || {}), ...(structured.address || {}) },
+      linkedinUrl: structured.linkedinUrl || profile.linkedinUrl || '',
+      githubUrl: structured.githubUrl || profile.githubUrl || '',
+      portfolioUrl: structured.portfolioUrl || profile.portfolioUrl || '',
+      yearsOfExperience: structured.yearsOfExperience || profile.yearsOfExperience || 0
+    };
+    await Storage.saveProfile(merged);
+    console.log('[Clyde Robust Log] Profile auto-populated and merged with structured resume.');
 
-  return { structured, profile: merged };
+    return { structured, profile: merged };
+  } catch (error) {
+    console.error('[Clyde Robust Log] Error inside handleAnalyzeResume:', error);
+    throw error;
+  }
 }
 
 async function handleFillFields({ fields, jobDescription: originalJobDescription }) {
@@ -2057,7 +2070,7 @@ async function handleTestProToken({ token }) {
       },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: 'Say "OK" and nothing else.' }] }],
-        model: 'gemini-3.5-flash'
+        model: 'gemini-2.5-flash'
       })
     });
     if (!response.ok) {

@@ -266,6 +266,19 @@
           </div>
         </div>
       </div>
+
+      <!-- Experiments -->
+      <div class="card">
+        <h2>Experiments</h2>
+        <p class="sub">Optional research features. Leave these off unless you know what you are doing.</p>
+        <div class="field">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 500;">
+            <input type="checkbox" id="enable-pdf-canary" style="width: auto; margin-right: 4px;">
+            <span>Embed adversarial PDF canary in generated documents</span>
+          </label>
+          <p class="hint" style="margin-top: 8px;">Adds a hidden test string to exported PDFs to detect whether an employer is using an AI resume screener. Warning: a human reviewer who inspects the raw PDF text could see it. Off by default.</p>
+        </div>
+      </div>
     </div>
 
     <!-- TAB 2: RESUME & AUDITS -->
