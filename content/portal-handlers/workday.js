@@ -99,7 +99,7 @@ PortalHandlers.register({
     });
 
     // Custom dropdowns (Workday uses div-based dropdowns)
-    const customDropdowns = FormFiller.querySelectorAllDeep('[data-automation-id*="dropdown"], [data-automation-id*="select"], [data-automation-id*="prompt"], [data-automation-id*="combobox"], [role="combobox"]');
+    const customDropdowns = FormFiller.querySelectorAllDeep('[data-automation-id*="dropdown"], [data-automation-id*="select"], [data-automation-id*="prompt"], [data-automation-id*="combobox"], [data-automation-id*="selectInput"], [role="combobox"], [aria-haspopup="listbox"], button[id*="select"], button[class*="select"]');
     console.log(`[Workday Debug] Custom dropdowns query matched ${customDropdowns.length} elements.`);
 
     customDropdowns.forEach(el => {

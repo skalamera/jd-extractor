@@ -8,6 +8,16 @@
   let overlay = null;
 
   let sidebarIframe = null;
+  let linkedinInterval = null;
+  let spaInterval = null;
+
+  function isContextValid() {
+    try {
+      return !!(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);
+    } catch (e) {
+      return false;
+    }
+  }
 
   function toggleSidebar() {
     if (window !== window.top) return;
@@ -30,13 +40,14 @@
     } else {
       sidebarIframe = document.createElement('iframe');
       sidebarIframe.id = 'clyde-sidebar-iframe';
+      sidebarIframe.setAttribute('allow', 'clipboard-write');
       sidebarIframe.src = chrome.runtime.getURL('popup.html?sidebar=true');
       sidebarIframe.style.cssText = `
         position: fixed !important;
         top: 20px !important;
         right: 20px !important;
         width: 460px !important;
-        height: calc(100vh - 40px) !important;
+        height: 80vh !important;
         border: 1px solid rgba(255, 255, 255, 0.15) !important;
         border-radius: 12px !important;
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
@@ -435,7 +446,21 @@
   function createOverlay() {
     if (window !== window.top) return; // Only show UI in the top frame
 
-    if (overlay) overlay.remove();
+    if (overlay) {
+      overlay.style.opacity = '1';
+      const statusEl = getOverlayElement('job-autofill-status');
+      if (statusEl) statusEl.textContent = 'Initializing...';
+      const progressBar = getOverlayElement('job-autofill-progress-bar');
+      if (progressBar) {
+        progressBar.style.width = '0%';
+        progressBar.style.background = '#38bdf8';
+      }
+      const skipBtn = getOverlayElement('job-autofill-skip-btn');
+      if (skipBtn) skipBtn.style.display = 'none';
+      const noticeEl = getOverlayElement('job-autofill-navigation-notice');
+      if (noticeEl) noticeEl.style.display = 'block';
+      return;
+    }
 
     overlay = document.createElement('div');
     overlay.id = 'job-autofill-overlay';
@@ -469,6 +494,21 @@
         display: block !important;
         position: relative !important;
       " id="job-autofill-overlay-inner">
+        <button id="job-autofill-close-btn" style="
+          position: absolute !important;
+          top: 14px !important;
+          right: 14px !important;
+          background: none !important;
+          border: none !important;
+          color: #94a3b8 !important;
+          cursor: pointer !important;
+          font-size: 14px !important;
+          font-weight: bold !important;
+          padding: 4px !important;
+          line-height: 1 !important;
+          transition: color 0.2s !important;
+          outline: none !important;
+        " title="Close Overlay">✕</button>
         <div style="font-weight: 700; font-size: 15px; margin-bottom: 12px !important; color: #38bdf8 !important; line-height: 1.4 !important; display: block !important; position: relative !important; float: none !important; clear: both !important; height: auto !important; width: auto !important;">
           Clyde AutoFill
         </div>
@@ -524,6 +564,19 @@
         setTimeout(() => { skipBtn.textContent = 'Skip Current Field'; }, 1000);
       });
     }
+
+    const closeBtn = getOverlayElement('job-autofill-close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('mouseenter', () => closeBtn.style.color = '#ffffff');
+      closeBtn.addEventListener('mouseleave', () => closeBtn.style.color = '#94a3b8');
+      closeBtn.addEventListener('click', () => {
+        if (overlay) {
+          overlay.style.opacity = '0';
+          setTimeout(() => overlay?.remove(), 300);
+          overlay = null;
+        }
+      });
+    }
   }
 
   function updateStatus(text, progress) {
@@ -571,7 +624,7 @@
 
       if (statusEl) {
         statusEl.innerHTML = `
-          <div style="color: #4ade80 !important; font-weight: 600 !important; line-height: 1.4 !important; display: block !important; position: relative !important;">Autofill Complete</div>
+          <div style="color: #4ade80 !important; font-weight: 600 !important; line-height: 1.4 !important; display: block !important;">Autofill Complete</div>
           <div style="margin-top: 4px !important; color: #cbd5e1 !important; font-size: 13px !important; line-height: 1.4 !important; display: block !important; position: relative !important; box-sizing: border-box !important;">
             Processed ${total} fields${failedCount > 0 ? ` (${failedCount} require verification)` : ''}
           </div>
@@ -579,8 +632,18 @@
           <div style="margin-top: 6px !important; color: #94a3b8 !important; font-size: 11px !important; font-style: italic !important; line-height: 1.4 !important; display: block !important; position: relative !important; box-sizing: border-box !important;">
             We recommend a quick manual review of your application before submitting.
           </div>
-          <button id="job-autofill-dismiss-btn" style="margin-top: 12px !important; width: 100% !important; padding: 8px !important; background: rgba(255, 255, 255, 0.1) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 6px !important; cursor: pointer !important; color: #cbd5e1 !important; font-weight: 600 !important; font-size: 13px !important; transition: background 0.2s, color 0.2s !important; line-height: normal !important; display: block !important; box-sizing: border-box !important;">Dismiss</button>
+          <button id="job-autofill-continue-btn" style="margin-top: 12px !important; width: 100% !important; padding: 8px !important; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%) !important; border: none !important; border-radius: 6px !important; cursor: pointer !important; color: white !important; font-weight: 600 !important; font-size: 13px !important; transition: opacity 0.2s !important; line-height: normal !important; display: block !important; box-sizing: border-box !important;">Continue with Autofill</button>
+          <button id="job-autofill-dismiss-btn" style="margin-top: 8px !important; width: 100% !important; padding: 8px !important; background: rgba(255, 255, 255, 0.1) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 6px !important; cursor: pointer !important; color: #cbd5e1 !important; font-weight: 600 !important; font-size: 13px !important; transition: background 0.2s, color 0.2s !important; line-height: normal !important; display: block !important; box-sizing: border-box !important;">Dismiss</button>
         `;
+
+        const continueBtn = getOverlayElement('job-autofill-continue-btn');
+        if (continueBtn) {
+          continueBtn.addEventListener('mouseenter', () => continueBtn.style.opacity = '0.85');
+          continueBtn.addEventListener('mouseleave', () => continueBtn.style.opacity = '1');
+          continueBtn.addEventListener('click', () => {
+            startAutoFill();
+          });
+        }
 
         const dismissBtn = getOverlayElement('job-autofill-dismiss-btn');
         if (dismissBtn) {
@@ -593,11 +656,7 @@
             dismissBtn.style.color = '#cbd5e1';
           });
           dismissBtn.addEventListener('click', () => {
-            if (overlay) {
-              overlay.style.opacity = '0';
-              setTimeout(() => overlay?.remove(), 300);
-              overlay = null;
-            }
+            showReadyState();
           });
         }
       }
@@ -606,21 +665,34 @@
         progressBar.style.width = '100%';
         progressBar.style.background = failedCount > 0 ? '#fbbc04' : '#34a853';
       }
-
-      // Auto-dismiss ONLY if there were no failures
-      if (failedCount === 0) {
-        setTimeout(() => {
-          if (overlay) {
-            overlay.style.opacity = '0';
-            setTimeout(() => overlay?.remove(), 300);
-            overlay = null;
-          }
-        }, 5000);
-      }
     } else {
       try {
         chrome.runtime.sendMessage({ type: 'AUTOFILL_DONE', filled, failedLabels, total });
       } catch (e) { }
+    }
+  }
+
+  function showReadyState() {
+    const statusEl = getOverlayElement('job-autofill-status');
+    if (statusEl) {
+      statusEl.innerHTML = `
+        <div style="color: #cbd5e1 !important; font-weight: 500 !important; line-height: 1.4 !important; display: block !important;">Ready for next page</div>
+        <button id="job-autofill-continue-btn" style="margin-top: 12px !important; width: 100% !important; padding: 8px !important; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%) !important; border: none !important; border-radius: 6px !important; cursor: pointer !important; color: white !important; font-weight: 600 !important; font-size: 13px !important; transition: opacity 0.2s !important; line-height: normal !important; display: block !important; box-sizing: border-box !important;">Continue with Autofill</button>
+      `;
+      const progressBar = getOverlayElement('job-autofill-progress-bar');
+      if (progressBar) {
+        progressBar.style.width = '0%';
+        progressBar.style.background = '#38bdf8';
+      }
+      
+      const continueBtn = getOverlayElement('job-autofill-continue-btn');
+      if (continueBtn) {
+        continueBtn.addEventListener('mouseenter', () => continueBtn.style.opacity = '0.85');
+        continueBtn.addEventListener('mouseleave', () => continueBtn.style.opacity = '1');
+        continueBtn.addEventListener('click', () => {
+          startAutoFill();
+        });
+      }
     }
   }
 
@@ -643,11 +715,7 @@
           dismissBtn.addEventListener('mouseenter', () => dismissBtn.style.background = '#e5e7eb');
           dismissBtn.addEventListener('mouseleave', () => dismissBtn.style.background = '#f3f4f6');
           dismissBtn.addEventListener('click', () => {
-            if (overlay) {
-              overlay.style.opacity = '0';
-              setTimeout(() => overlay?.remove(), 300);
-              overlay = null;
-            }
+            showReadyState();
           });
         }
       }
@@ -879,19 +947,38 @@
 
   // Main auto-fill flow
   async function startAutoFill() {
-    if (window !== window.top) {
-      console.log('[JobAutoFill] Skipping autofill in sub-frame');
+    if (isRunning) return;
+
+    // Detect portal handler
+    const handler = PortalHandlers.detect() || GenericHandler;
+    const fields = handler ? handler.getFields() : [];
+
+    // Robust logging for portal and fields detection
+    console.log(`[JobAutoFill Robust Log] Entering startAutoFill for window: "${window.location.href}" (isTop: ${window === window.top})`);
+    console.log(`[JobAutoFill Robust Log] Detected handler: "${handler?.name || 'Generic'}"`);
+    console.log(`[JobAutoFill Robust Log] Fields count: ${fields.length}`);
+
+    const hasIframeInTop = window === window.top && document.querySelectorAll('iframe').length > 0;
+    const isFrameWithFields = fields.length > 0;
+    const shouldRun = (window === window.top) || isFrameWithFields;
+
+    if (!shouldRun) {
+      console.log(`[JobAutoFill Robust Log] Skipping frame "${window.location.href}" - not top-level and contains 0 fields.`);
       return;
     }
-    if (isRunning) return;
+
     isRunning = true;
     skipRequested = false;
 
-    createOverlay();
-    const skipBtn = getOverlayElement('job-autofill-skip-btn');
-    if (skipBtn) skipBtn.style.display = 'block';
-
-    updateStatus('Detecting application form...', 5);
+    // Only create status overlay in the top-level window
+    if (window === window.top) {
+      createOverlay();
+      const skipBtn = getOverlayElement('job-autofill-skip-btn');
+      if (skipBtn) skipBtn.style.display = 'block';
+      updateStatus('Detecting application form...', 5);
+    } else {
+      console.log(`[JobAutoFill Robust Log] Executing autofill inside active sub-frame: "${window.location.href}" with ${fields.length} detected fields!`);
+    }
 
     try {
       // 1. Get profile and resume data
@@ -911,9 +998,6 @@
         }
         return elements;
       };
-
-      // Detect portal handler
-      const handler = PortalHandlers.detect() || GenericHandler;
       console.log(`[JobAutoFill Debug] Detected handler: "${handler?.name || 'Generic'}"`);
       console.log(`[JobAutoFill Debug] Is customFill defined on handler? ${typeof handler?.customFill === 'function'}`);
       const isSmartRecruiters = handler?.name === 'SmartRecruiters';
@@ -990,7 +1074,11 @@
             // Prevent false "No form fields" errors when the form is in another frame
             if (window !== window.top || document.querySelectorAll('iframe').length > 0) {
               isRunning = false;
-              if (overlay) { overlay.remove(); overlay = null; }
+              console.log('[JobAutoFill Robust Log] Frame has no direct fields, but found active iframes or is a subframe. Keeping overlay active.');
+              if (window !== window.top && overlay) { 
+                overlay.remove(); 
+                overlay = null; 
+              }
               return;
             }
             throw new Error('No form fields detected on this page.');
@@ -1006,15 +1094,16 @@
         const jobDescription = handler.getJobDescription?.() || '';
         const jobInfo = handler.getJobInfo?.() || {};
 
+        console.log(`[JobAutoFill Robust Log] Pass ${pass}: Total fields found: ${fields.length}`);
+        fields.forEach((f, idx) => {
+          console.log(`  [Field #${idx + 1}] ID: "${f.id}", Label: "${f.label}", Type: "${f.fieldType}", Options: ${f.options ? `[${f.options.join(', ')}]` : 'None'}`);
+        });
+
         // Separate fields by type
         const directFields = [];
         const aiFields = [];
         const fileFields = [];
         const coverLetterFields = [];
-
-        console.log(`[JobAutoFill] Pass ${pass}: Detected fields:`, fields.map(f => ({
-          label: f.label, id: f.id, type: f.fieldType, options: f.options
-        })));
 
         fields.forEach(field => {
           const purpose = getFieldPurpose(field);
@@ -1440,28 +1529,42 @@
 
     // Always start LinkedIn button injection poller on linkedin.com
     if (url.includes('linkedin.com')) {
-      setInterval(injectLinkedInExtractButton, 1000);
+      linkedinInterval = setInterval(injectLinkedInExtractButton, 1000);
     }
 
     const isJobSite = /ashbyhq\.com|greenhouse\.io|lever\.co|myworkdayjobs\.com|workday\.com|linkedin\.com\/jobs|icims\.com|taleo\.net|careers|jobs|apply|application/i.test(url);
 
     if (isJobSite) {
-      const settings = await chrome.storage.local.get(['badgeDisabledGlobally', 'disabledDomains']);
-      const isGloballyDisabled = settings.badgeDisabledGlobally || false;
-      const disabledDomains = settings.disabledDomains || [];
-      const currentDomain = window.location.hostname;
+      try {
+        const settings = await chrome.storage.local.get(['badgeDisabledGlobally', 'disabledDomains']);
+        const isGloballyDisabled = settings.badgeDisabledGlobally || false;
+        const disabledDomains = settings.disabledDomains || [];
+        const currentDomain = window.location.hostname;
 
-      if (!isGloballyDisabled && !disabledDomains.includes(currentDomain)) {
-        createFAB();
-        mutationObserver.observe(document.body, { childList: true, subtree: true });
-      } else {
-        console.log('[Clyde] FAB is disabled on this page/domain via user settings.');
+        if (!isGloballyDisabled && !disabledDomains.includes(currentDomain)) {
+          createFAB();
+          mutationObserver.observe(document.body, { childList: true, subtree: true });
+        } else {
+          console.log('[Clyde] FAB is disabled on this page/domain via user settings.');
+        }
+      } catch (err) {
+        console.log('[Clyde] Extension context invalidated during init config load.');
+        return;
       }
     }
 
     // Monitor URL changes on Single Page Applications (SPAs) like LinkedIn
     let lastUrl = url;
-    setInterval(async () => {
+    spaInterval = setInterval(async () => {
+       // Gracefully exit and clear interval if context has been invalidated
+      if (!isContextValid()) {
+        if (spaInterval) {
+          clearInterval(spaInterval);
+          spaInterval = null;
+        }
+        return;
+      }
+      
       const currentUrl = window.location.href;
       if (currentUrl !== lastUrl) {
         lastUrl = currentUrl;
@@ -1469,17 +1572,25 @@
         // Re-evaluate FAB showing
         const isJob = /ashbyhq\.com|greenhouse\.io|lever\.co|myworkdayjobs\.com|workday\.com|linkedin\.com\/jobs|icims\.com|taleo\.net|careers|jobs|apply|application/i.test(currentUrl);
         if (isJob) {
-          const settings = await chrome.storage.local.get(['badgeDisabledGlobally', 'disabledDomains']);
-          const isGloballyDisabled = settings.badgeDisabledGlobally || false;
-          const disabledDomains = settings.disabledDomains || [];
-          const currentDomain = window.location.hostname;
+          try {
+            const settings = await chrome.storage.local.get(['badgeDisabledGlobally', 'disabledDomains']);
+            const isGloballyDisabled = settings.badgeDisabledGlobally || false;
+            const disabledDomains = settings.disabledDomains || [];
+            const currentDomain = window.location.hostname;
 
-          if (!isGloballyDisabled && !disabledDomains.includes(currentDomain)) {
-            if (!fab) createFAB();
-            mutationObserver.disconnect();
-            mutationObserver.observe(document.body, { childList: true, subtree: true });
-          } else {
-            if (fab) { fab.remove(); fab = null; }
+            if (!isGloballyDisabled && !disabledDomains.includes(currentDomain)) {
+              if (!fab) createFAB();
+              mutationObserver.disconnect();
+              mutationObserver.observe(document.body, { childList: true, subtree: true });
+            } else {
+              if (fab) { fab.remove(); fab = null; }
+            }
+          } catch (err) {
+            console.log('[Clyde] Extension context invalidated inside SPA poller.');
+            if (spaInterval) {
+              clearInterval(spaInterval);
+              spaInterval = null;
+            }
           }
         } else {
           if (fab) { fab.remove(); fab = null; }
@@ -1489,6 +1600,15 @@
   }
 
   function injectLinkedInExtractButton() {
+    // Gracefully exit and clear interval if context has been invalidated
+    if (!isContextValid()) {
+      if (linkedinInterval) {
+        clearInterval(linkedinInterval);
+        linkedinInterval = null;
+      }
+      return;
+    }
+
     // Look for all "Save" buttons on the page (supports list view and single job view)
     const saveBtns = document.querySelectorAll('.jobs-save-button');
     if (!saveBtns || saveBtns.length === 0) return;
@@ -1683,7 +1803,7 @@
   }
 
   function updateButtonState(btn) {
-    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id || !chrome.storage || !chrome.storage.local) return;
+    if (!isContextValid() || !chrome.storage || !chrome.storage.local) return;
 
     try {
       chrome.storage.local.get({ clips: [] }, (data) => {
@@ -1734,7 +1854,7 @@
   if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
     try {
       chrome.storage.onChanged.addListener((changes, namespace) => {
-        if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) return;
+        if (!isContextValid()) return;
 
         if (namespace === 'local' && changes.clips) {
           const btn = document.getElementById('jayobee-inline-extract-btn');

@@ -593,11 +593,29 @@ function load() {
         return;
       }
       allClips = data.clips;
-    activeClipIdx = data.activeClipIdx;
-    resumeFileName = data.resumeFile ? data.resumeFile.fileName : "None (Upload required)";
-    hasActiveTailored = !!data.activeResumeText;
-    activeTailoredName = data.activeResumeName || "";
-    const useTailored = data.useTailoredResume !== false;
+      activeClipIdx = data.activeClipIdx;
+
+      // Resolve active tailored resume from the active clip!
+      const activeClip = (activeClipIdx !== null && allClips[activeClipIdx]) ? allClips[activeClipIdx] : null;
+      let tailoredText = null;
+      let tailoredName = null;
+      if (activeClip && activeClip.tailoredResumeText) {
+        tailoredText = activeClip.tailoredResumeText;
+        tailoredName = activeClip.tailoredResumeName;
+      }
+
+      // Only write back to storage if it changed, to prevent infinite storage onChanged loops
+      if (data.activeResumeText !== tailoredText || data.activeResumeName !== tailoredName) {
+        chrome.storage.local.set({
+          activeResumeText: tailoredText,
+          activeResumeName: tailoredName
+        });
+      }
+
+      resumeFileName = data.resumeFile ? data.resumeFile.fileName : "None (Upload required)";
+      hasActiveTailored = !!tailoredText;
+      activeTailoredName = tailoredName || "";
+      const useTailored = data.useTailoredResume !== false;
 
     // Populates active resume select options
     const activeResumeSelect = document.getElementById("active-resume-select");
@@ -624,7 +642,6 @@ function load() {
     }
 
     // Populates active cover letter widget
-    const activeClip = (activeClipIdx !== null && allClips[activeClipIdx]) ? allClips[activeClipIdx] : null;
     const clWidget = document.getElementById("clyde-active-cl-widget");
     const clTextarea = document.getElementById("clyde-active-cl-textarea");
 
@@ -905,9 +922,9 @@ async function handleAiApply(clipIdx, applyBtn) {
   applyBtn.innerHTML = `<span class="spinner"></span> Applying...`;
 
   try {
-    // Make sure we have an API key and active resume
-    const data = await chrome.storage.local.get(['geminiApiKey', 'activeResumeText', 'masterResumeText']);
-    if (!data.geminiApiKey) throw new Error("Please set your Gemini API key in the extension popup.");
+    // Make sure we have an API key or Pro Token and active resume
+    const data = await chrome.storage.local.get(['geminiApiKey', 'clydeProToken', 'activeResumeText', 'masterResumeText']);
+    if (!data.geminiApiKey && !data.clydeProToken) throw new Error("Please set your Gemini API key or Clyde Pro License Token in Settings.");
     if (!data.activeResumeText && !data.masterResumeText) throw new Error("Please upload your resume in the extension popup.");
 
     // Set this clip as active JD so the background script uses it for FILL_FIELDS
@@ -969,8 +986,8 @@ async function handleGenerate(clipIdx, type) {
 
     try {
       if (type === 'network') {
-        const data = await chrome.storage.local.get(['geminiApiKey', 'masterResumeText']);
-        if (!data.geminiApiKey) throw new Error("Please set your Gemini API key in Settings.");
+        const data = await chrome.storage.local.get(['geminiApiKey', 'clydeProToken', 'masterResumeText']);
+        if (!data.geminiApiKey && !data.clydeProToken) throw new Error("Please set your Gemini API key or Clyde Pro License Token in Settings.");
         const resumeText = data.masterResumeText || "";
         if (!resumeText) throw new Error("No master resume uploaded.");
       
@@ -982,7 +999,7 @@ async function handleGenerate(clipIdx, type) {
       if (response.error) throw new Error(response.error);
       
       // Copy to clipboard
-      await navigator.clipboard.writeText(response.message);
+      await copyTextToClipboard(response.message);
       showFeedback(feedback, "success", "Message copied to clipboard!");
     } else {
       const result = await chrome.runtime.sendMessage({
@@ -1050,7 +1067,13 @@ async function handleClydeSync(clipIdx, btn) {
       clip.companyName || 'Unknown Company',
       clip.text || '',
       clip.jobTitle || '',
-      opts
+      opts,
+      {
+        score: clip.score,
+        topStrength: clip.topStrength,
+        mainGap: clip.mainGap,
+        mitigation: clip.mitigation
+      }
     );
 
     const card = container.querySelector(`.clip[data-idx="${clipIdx}"]`);
@@ -1128,7 +1151,7 @@ const clTextarea = document.getElementById("clyde-active-cl-textarea");
 if (clCopyBtn && clTextarea) {
   clCopyBtn.addEventListener("click", async () => {
     try {
-      await navigator.clipboard.writeText(clTextarea.value);
+      await copyTextToClipboard(clTextarea.value);
       clCopyBtn.textContent = "Copied ✓";
       setTimeout(() => { clCopyBtn.textContent = "Copy"; }, 2000);
     } catch (err) {
@@ -1175,5 +1198,77 @@ if (clTextarea) {
     }
   });
 }
+
+async function copyTextToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (err) {
+    console.warn("navigator.clipboard.writeText failed, trying fallback:", err);
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.top = "0";
+      textarea.style.left = "0";
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const successful = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      if (successful) return true;
+      throw new Error("execCommand copy returned false");
+    } catch (fallbackErr) {
+      console.error("Fallback clipboard copy failed:", fallbackErr);
+      throw new Error("Clipboard copy blocked by browser security policy. Please copy manually.");
+    }
+  }
+}
+
+// --- Clyde Desktop Connection Status Monitor ---
+async function startClydeConnectionMonitor() {
+  const dot = document.getElementById("clyde-connection-dot");
+  const text = document.getElementById("clyde-connection-text");
+
+  if (!dot || !text) {
+    return;
+  }
+
+  async function checkConnection() {
+    try {
+      const data = await chrome.storage.local.get(['clydeHost', 'clydePort']);
+      const host = data.clydeHost || '127.0.0.1';
+      const port = parseInt(data.clydePort) || 4593;
+      const opts = { host, port };
+
+      const clydeClient = await loadClydeClient();
+      if (!clydeClient) {
+        throw new Error('No Clyde client');
+      }
+
+      const availability = await clydeClient.isAvailable(opts);
+      if (availability.available) {
+        dot.style.backgroundColor = "#4ade80";
+        dot.style.boxShadow = "0 0 8px #4ade80";
+        text.textContent = "Connected to Clyde Desktop";
+      } else {
+        dot.style.backgroundColor = "#ef4444";
+        dot.style.boxShadow = "0 0 8px #ef4444";
+        text.textContent = "Disconnected from Clyde Desktop";
+      }
+    } catch (_) {
+      dot.style.backgroundColor = "#ef4444";
+      dot.style.boxShadow = "0 0 8px #ef4444";
+      text.textContent = "Disconnected from Clyde Desktop";
+    }
+  }
+
+  // Check immediately, then poll every 4 seconds
+  checkConnection();
+  setInterval(checkConnection, 4000);
+}
+
+startClydeConnectionMonitor();
 
 load();

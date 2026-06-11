@@ -13,7 +13,13 @@
       background: #0f172a;
       color: #f8fafc;
       font-size: 13px;
+      max-height: 100vh;
+      overflow-y: auto;
+      overflow-x: hidden;
     }
+    body::-webkit-scrollbar { width: 6px; }
+    body::-webkit-scrollbar-track { background: transparent; }
+    body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 3px; }
 
     /* ── Header ─────────────────────────────────────────── */
     header {
@@ -785,6 +791,14 @@
     <div class="empty">
       <div class="empty-icon">&#9986;</div>
       Loading clips...
+    </div>
+  </div>
+
+  <!-- Clyde Desktop Connection Status Floating Pill -->
+  <div id="clyde-connection-pill-container" style="display: flex; justify-content: center; width: 100%; padding: 10px 0; background: rgba(15, 23, 42, 0.6); border-top: 1px solid rgba(255, 255, 255, 0.05); box-sizing: border-box;">
+    <div id="clyde-connection-pill" style="display: inline-flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 20px; padding: 6px 14px; font-size: 11px; font-weight: 700; color: #e2e8f0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);">
+      <span id="clyde-connection-dot" style="width: 8px; height: 8px; border-radius: 50%; background-color: #ef4444; box-shadow: 0 0 8px #ef4444; display: inline-block;"></span>
+      <span id="clyde-connection-text">Disconnected from Clyde Desktop</span>
     </div>
   </div>
 

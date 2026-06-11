@@ -347,64 +347,72 @@ async function handleExtractPage(tabId, selectedText, url) {
   await new Promise(r => chrome.storage.local.set({ clips, activeClipIdx }, r));
   if (tabId) showToast(tabId, "Saved to Clyde ✓", "#1a1a2e");
 
-  // Extract details in background
+  // Run the heavy Gemini extraction and Clyde Desktop auto-sync asynchronously
+  // so that the popup gets an immediate success response and doesn't freeze/hang.
   const apiKey = data.geminiApiKey?.trim();
   const resumeText = data.activeResumeText || data.masterResumeText || "";
   
   if (apiKey) {
-     try {
-       const extracted = await extractJobInfoJson(apiKey, selectedText, resumeText);
-       const freshData = await new Promise(r => chrome.storage.local.get({clips: []}, r));
-       const targetIdx = freshData.clips.findIndex(c => c.savedAt === newClip.savedAt);
-       
-       if (targetIdx !== -1) {
-          let companyFallback = "Company";
-          if (url) {
-            try {
-              const host = new URL(url).hostname;
-              const parts = host.replace(/^www\./i, '').split('.');
-              if (parts.length > 0) {
-                companyFallback = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
-              }
-            } catch (e) {}
-          }
+    (async () => {
+       try {
+         const extracted = await extractJobInfoJson(apiKey, selectedText, resumeText);
+         const freshData = await new Promise(r => chrome.storage.local.get({clips: []}, r));
+         const targetIdx = freshData.clips.findIndex(c => c.savedAt === newClip.savedAt);
+         
+         if (targetIdx !== -1) {
+            let companyFallback = "Company";
+            if (url) {
+              try {
+                const host = new URL(url).hostname;
+                const parts = host.replace(/^www\./i, '').split('.');
+                if (parts.length > 0) {
+                  companyFallback = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+                }
+              } catch (e) {}
+            }
 
-          freshData.clips[targetIdx].jobTitle = extracted.title || "Job Title";
-          freshData.clips[targetIdx].companyName = extracted.company || companyFallback;
-          freshData.clips[targetIdx].location = extracted.location || "Location";
-          freshData.clips[targetIdx].score = extracted.score || null;
-          freshData.clips[targetIdx].archetype = extracted.archetype || "Unknown";
-          freshData.clips[targetIdx].salary = extracted.salary || "Unknown";
-          freshData.clips[targetIdx].topStrength = extracted.top_strength || "";
-          freshData.clips[targetIdx].mainGap = extracted.main_gap || "";
-          freshData.clips[targetIdx].mitigation = extracted.mitigation || "";
-          
-          await new Promise(r => chrome.storage.local.set({clips: freshData.clips}, r));
-          
-          // Trigger auto-sync to Clyde Desktop App
-          await autoSyncClipToClyde(freshData.clips[targetIdx]);
+            freshData.clips[targetIdx].jobTitle = extracted.title || "Job Title";
+            freshData.clips[targetIdx].companyName = extracted.company || companyFallback;
+            freshData.clips[targetIdx].location = extracted.location || "Location";
+            freshData.clips[targetIdx].score = extracted.score || null;
+            freshData.clips[targetIdx].archetype = extracted.archetype || "Unknown";
+            freshData.clips[targetIdx].salary = extracted.salary || "Unknown";
+            freshData.clips[targetIdx].topStrength = extracted.top_strength || "";
+            freshData.clips[targetIdx].mainGap = extracted.main_gap || "";
+            freshData.clips[targetIdx].mitigation = extracted.mitigation || "";
+            
+            await new Promise(r => chrome.storage.local.set({clips: freshData.clips}, r));
+            
+            // Trigger auto-sync to Clyde Desktop App
+            await autoSyncClipToClyde(freshData.clips[targetIdx]);
+         }
+       } catch (err) {
+         console.error("Extraction error:", err);
        }
-     } catch (err) {
-       console.error("Extraction error:", err);
-     }
+    })();
   }
   return { success: true };
 }
 
   async function handlePopupGenerate(type, clipIdx) {
     const data = await new Promise(r =>
-      chrome.storage.local.get({ geminiApiKey: "", clips: [], masterResumeText: null }, r)
+      chrome.storage.local.get({ geminiApiKey: "", clydeProToken: "", clips: [], masterResumeText: null, profile: {} }, r)
     );
     const apiKey = data.geminiApiKey?.trim();
-    if (!apiKey) throw new Error("No Gemini API key. Open Settings.");
+    const proToken = data.clydeProToken?.trim();
+    if (!apiKey && !proToken) throw new Error("No Gemini API key or Clyde Pro License Token. Open Settings.");
   
     const clip = data.clips[clipIdx];
     if (!clip) throw new Error("Clip not found");
+
+    // Automatically make this clip active when generating documents for it
+    await chrome.storage.local.set({ activeClipIdx: clipIdx });
   
     // CRITICAL: Always use the master resume for generation, never the active (previously tailored) resume
     const resumeText = data.masterResumeText || "";
     if (!resumeText) throw new Error("No master resume uploaded. Please upload a resume in Settings.");
 
+  const profile = data.profile || {};
   const docs = [];
   const promises = [];
 
@@ -413,24 +421,42 @@ async function handleExtractPage(tabId, selectedText, url) {
 
   if (type === "cv" || type === "both") {
     promises.push(generateCvJson(apiKey, clip.text, resumeText).then(async d => {
-      docs.push({ html: buildCvHtml(d), order: 0, key: cvKey });
+      docs.push({ html: buildCvHtml(d, profile.portfolioUrl), order: 0, key: cvKey });
       // Generate flat text CV and save as active resume
-      const flatText = generateFlatCvText(d);
+      const flatText = generateFlatCvText(d, profile.portfolioUrl);
       const activeName = `${d.job_title || 'Role'} - ${d.company_name || 'Company'} - CV`;
-      await chrome.storage.local.set({ 
-        activeResumeText: flatText,
-        activeResumeName: activeName 
-      });
+      
+      const freshData = await new Promise(r => chrome.storage.local.get({ clips: [] }, r));
+      if (freshData.clips[clipIdx]) {
+        freshData.clips[clipIdx].tailoredResumeText = flatText;
+        freshData.clips[clipIdx].tailoredResumeName = activeName;
+        await chrome.storage.local.set({ 
+          clips: freshData.clips,
+          activeResumeText: flatText,
+          activeResumeName: activeName 
+        });
+      }
     }));
   }
 
   if (type === "cover" || type === "both") {
     promises.push(generateCoverJson(apiKey, clip.text, resumeText).then(async d => {
-      docs.push({ html: buildCoverHtml(d, resumeText), order: 1, key: coverKey });
+      docs.push({ html: buildCoverHtml(d, resumeText, profile.portfolioUrl), order: 1, key: coverKey });
       
+      const contactInfo = [];
+      const city = profile.address?.city;
+      const state = profile.address?.state;
+      if (city && state) {
+        contactInfo.push(`${city}, ${state}`);
+      } else if (city || state) {
+        contactInfo.push(city || state);
+      }
+      if (profile.phone) contactInfo.push(profile.phone);
+      if (profile.email) contactInfo.push(profile.email);
+
       const headerBlock = [
-        d.name || "Stephen Skalamera",
-        `New York, NY | (443) 624-1226 | skalamera@gmail.com`
+        d.name || profile.fullName || "Applicant",
+        contactInfo.join(' | ') || (d.email || d.location ? `${d.location || ''} | ${d.email || ''}` : '')
       ].join('\n');
 
       const plainText = [
@@ -469,13 +495,17 @@ async function handleExtractPage(tabId, selectedText, url) {
 
   async function handleNetworkDraft(clipIdx) {
     const data = await new Promise(r =>
-      chrome.storage.local.get({ geminiApiKey: "", clips: [], masterResumeText: null }, r)
+      chrome.storage.local.get({ geminiApiKey: "", clydeProToken: "", clips: [], masterResumeText: null }, r)
     );
     const apiKey = data.geminiApiKey?.trim();
-    if (!apiKey) throw new Error("No Gemini API key.");
+    const proToken = data.clydeProToken?.trim();
+    if (!apiKey && !proToken) throw new Error("No Gemini API key or Clyde Pro License Token.");
   
     const clip = data.clips[clipIdx];
     if (!clip) throw new Error("Clip not found");
+
+    // Automatically make this clip active when generating documents for it
+    await chrome.storage.local.set({ activeClipIdx: clipIdx });
   
     // CRITICAL: Always use the master resume for generation, never the active (previously tailored) resume
     const resumeText = data.masterResumeText || "";
@@ -494,7 +524,7 @@ Example of good output:
 "Hi Hiring Team, I'm reaching out because I am genuinely interested in the Data Engineer position at Acme Corp. After reviewing the job description, I see a strong alignment with my background. Specifically, your focus on scaling ETL pipelines caught my eye; in my current role, I rebuilt our core data pipeline using Spark and Airflow, reducing processing time by 30%. I believe this experience directly translates to the goals of your data team. I would appreciate the opportunity to connect and discuss how I can contribute. Best regards, Alex"`;
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -513,10 +543,11 @@ Example of good output:
 }
 
 async function handleContextCoverLetter(tab) {
-  chrome.storage.local.get({ geminiApiKey: "", clips: [], activeClipIdx: null, activeResumeText: null, masterResumeText: null }, async (data) => {
+  chrome.storage.local.get({ geminiApiKey: "", clydeProToken: "", clips: [], activeClipIdx: null, activeResumeText: null, masterResumeText: null, profile: {} }, async (data) => {
     const apiKey = data.geminiApiKey?.trim();
-    if (!apiKey) {
-      showToast(tab.id, "❌ No Gemini API key set - open extension options to add it.", "#b45309", 5000);
+    const proToken = data.clydeProToken?.trim();
+    if (!apiKey && !proToken) {
+      showToast(tab.id, "❌ No API key or Pro License Token set - open extension options.", "#b45309", 5000);
       return;
     }
 
@@ -537,12 +568,14 @@ async function handleContextCoverLetter(tab) {
     showToast(tab.id, "Drafting cover letter... ✍️", "#1e293b", 3000);
 
     try {
+      const profile = data.profile || {};
       const coverLetter = await Gemini.generateCoverLetter(
         apiKey,
         resumeText,
         activeClip.text,
         activeClip.companyName || "Unknown Company",
-        activeClip.jobTitle || "Unknown Role"
+        activeClip.jobTitle || "Unknown Role",
+        profile.portfolioUrl
       );
 
       if (coverLetter) {
@@ -563,11 +596,12 @@ async function handleContextCoverLetter(tab) {
 // ── AI answer flow ─────────────────────────────────────────────────────────────
 
 async function handleAiAnswer(question, tab, type = "custom") {
-  chrome.storage.local.get({ geminiApiKey: "", clips: [], activeClipIdx: null, activeResumeText: null, masterResumeText: null }, async (data) => {
-    const apiKey = data.geminiApiKey.trim();
+  chrome.storage.local.get({ geminiApiKey: "", clydeProToken: "", clips: [], activeClipIdx: null, activeResumeText: null, masterResumeText: null }, async (data) => {
+    const apiKey = data.geminiApiKey?.trim();
+    const proToken = data.clydeProToken?.trim();
 
-    if (!apiKey) {
-      showToast(tab.id, "❌ No Gemini API key set - open extension options to add it.", "#b45309", 5000);
+    if (!apiKey && !proToken) {
+      showToast(tab.id, "❌ No API key or Pro License Token set - open extension options.", "#b45309", 5000);
       return;
     }
 
@@ -878,12 +912,16 @@ async function callGemini(apiKey, question, jobDescription, resumeText, customSy
     console.error("Could not load style guide:", e);
   }
 
-  const defaultSystemInstruction = `You are Stephen Skalamera filling out a job application. Answer in first person using only facts from the supplied resume and job description. Output only the answer text, ready to paste. No preamble, no labels, no quotation marks, no markdown headings.
+  const profile = await Storage.getProfile();
+  const fullName = profile.fullName || "the applicant";
+  const firstName = profile.firstName || "the applicant";
+
+  const defaultSystemInstruction = `You are ${fullName} filling out a job application. Answer in first person using only facts from the supplied resume and job description. Output only the answer text, ready to paste. No preamble, no labels, no quotation marks, no markdown headings.
 
 GROUNDING RULES
 - Every concrete claim must come from the supplied resume. Prefer one quantified proof over vague strengths.
 - Tie the answer to something specific from the job description when one is provided (tooling, domain, team shape, metric they care about).
-- Stephen has options; he is choosing this role for concrete reasons, not asking to be considered.
+- The applicant has options; they are choosing this role for concrete reasons, not asking to be considered.
 - Confident, not arrogant. Selective, not superior: intentional about fit and impact from day one.
 - Proof over claims: do not say "I'm great at X"; say what was built or done and what it changed, using only supplied facts.
 
@@ -911,9 +949,9 @@ ${styleGuide}`;
     
   let toneInstruction = "";
   if (tonePreference === 'casual') {
-    toneInstruction = "\nWrite the response in a conversational, casual, and friendly tone while remaining professional.";
+    toneInstruction = `\n\nTone constraint: Write in a more casual, warm, conversational tone (e.g. using slightly more relaxed phrasing while remaining professional).`;
   } else if (tonePreference === 'formal') {
-    toneInstruction = "\nWrite the response in a highly formal, polished, and structured professional tone.";
+    toneInstruction = `\n\nTone constraint: Write in a highly formal, traditional corporate tone.`;
   }
 
   let lengthInstruction = "";
@@ -935,22 +973,41 @@ ${styleGuide}`;
   }
 
   const directionsSection = customDirections || toneInstruction || lengthInstruction
-    ? `\n\nAdditional instructions from Stephen for this specific question:\n${customDirections || ""}${toneInstruction}${lengthInstruction}`
+    ? `\n\nAdditional instructions for this specific question:\n${customDirections || ""}${toneInstruction}${lengthInstruction}`
     : "";
 
-  const userPrompt = `Here is Stephen's resume:\n\n${resumeText}${jdSection}\n---\n\nJob application question:\n${question}${directionsSection}`;
+  const userPrompt = `Here is ${firstName}'s resume:\n\n${resumeText}${jdSection}\n---\n\nJob application question:\n${question}${directionsSection}`;
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemInstruction }] },
-        contents: [{ role: "user", parts: [{ text: userPrompt }] }]
-      })
-    }
-  );
+  const storage = await chrome.storage.local.get('clydeProToken');
+  const proToken = storage.clydeProToken?.trim();
+
+  let fetchUrl, fetchHeaders, fetchBody;
+
+  if (proToken) {
+    fetchUrl = 'https://clydeai.live/api/proxy';
+    fetchHeaders = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${proToken}`
+    };
+    fetchBody = JSON.stringify({
+      systemInstruction,
+      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+      model: 'gemini-3.5-flash'
+    });
+  } else {
+    fetchUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
+    fetchHeaders = { "Content-Type": "application/json" };
+    fetchBody = JSON.stringify({
+      system_instruction: { parts: [{ text: systemInstruction }] },
+      contents: [{ role: "user", parts: [{ text: userPrompt }] }]
+    });
+  }
+
+  const response = await fetch(fetchUrl, {
+    method: "POST",
+    headers: fetchHeaders,
+    body: fetchBody
+  });
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
@@ -1035,18 +1092,37 @@ function replacePersistentToast(tabId, id, message, bg, duration = 3500) {
 // ── Gemini JSON calls ────────────────────────────────────────────────────────
 
 async function callGeminiJson(apiKey, systemInstruction, userPrompt, retries = 1) {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemInstruction }] },
-        contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
-      })
-    }
-  );
+  const storage = await chrome.storage.local.get('clydeProToken');
+  const proToken = storage.clydeProToken?.trim();
+
+  let fetchUrl, fetchHeaders, fetchBody;
+
+  if (proToken) {
+    fetchUrl = 'https://clydeai.live/api/proxy';
+    fetchHeaders = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${proToken}`
+    };
+    fetchBody = JSON.stringify({
+      systemInstruction,
+      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+      model: 'gemini-3.5-flash'
+    });
+  } else {
+    fetchUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
+    fetchHeaders = { "Content-Type": "application/json" };
+    fetchBody = JSON.stringify({
+      system_instruction: { parts: [{ text: systemInstruction }] },
+      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+      generationConfig: { responseMimeType: "application/json" }
+    });
+  }
+
+  const response = await fetch(fetchUrl, {
+    method: "POST",
+    headers: fetchHeaders,
+    body: fetchBody
+  });
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
@@ -1110,45 +1186,153 @@ Return ONLY valid JSON matching this structure:
 }
 
 async function generateCvJson(apiKey, jobDescription, resumeText) {
-  const systemInstruction = `You generate ATS-optimized, tailored CVs. Given a resume and job description, return a JSON object with the CV content customized for the specific role.
-
+  const profile = await Storage.getProfile();
+  const firstName = profile.firstName || "Stephen";
+  const systemInstruction = `You generate tailored professional summaries and titles for an applicant's CV based on a job description.
+  
   TAILORING RULES:
-  - IMPORTANT: ALWAYS write the CV summary IN THE FIRST PERSON IMPLIED ("Spearheaded the launch of..." not "Stephen spearheaded...").
-  - NEVER refer to the applicant in the third person ("Stephen", "he", "his").
+  - IMPORTANT: ALWAYS write the CV summary IN THE FIRST PERSON IMPLIED ("Spearheaded the launch of..." not "${firstName} spearheaded...").
+  - NEVER refer to the applicant in the third person (${profile.firstName ? `"${profile.firstName}", ` : ''}"he", "she", "his", "her").
   - Rewrite the Professional Summary (2-4 sentences) to align with the JD's key requirements and vocabulary.
   - Never use bold or strong formatting in the summary.
   - Never use em dashes. Use commas, colons, semicolons, or separate sentences.
-  - CRITICAL: ONLY tailor the Professional Summary text. ALL OTHER SECTIONS (Competencies, Experience, Projects, Education, Certifications, Skills) MUST REMAIN UNTOUCHED and identical to the original resume. Do not reword bullet points, do not change skills, do not change competencies. Just return the existing resume content for those sections verbatim.
-  - STRICT PARSING: Ensure dates are correctly assigned to their respective items. Do not let degree dates accidentally bleed into the Skills section.
   
   Return ONLY valid JSON matching this structure:
   {
-    "name": "string",
-    "email": "string",
-    "linkedin_url": "string",
-    "linkedin_display": "string",
-    "location": "string",
-    "job_title": "string (the job title from JD)",
+    "job_title": "string (the tailored job title from JD)",
     "company_name": "string (the company name from JD)",
-    "summary": "string",
-    "competencies": ["string"],
-    "experience": [{"company":"string","period":"string","role":"string","location":"string","bullets":["string"]}],
-    "projects": [{"title":"string","role":"string","bullets":["string"]}],
-    "education": [{"org":"string","year":"string","major":"string","degree":"string"}],
-    "certifications": [{"title":"string","org":"string","year":"string"}],
-    "skills": [{"category":"string","items":"string"}]
+    "summary": "string (the tailored summary)",
+    "competencies": ["string (5 brief key competencies matching the JD)"]
   }`;
 
-  return callGeminiJson(apiKey, systemInstruction,
-    `Resume:\n\n${resumeText}\n\nJob Description:\n\n${jobDescription}`);
+  const result = await callGeminiJson(apiKey, systemInstruction,
+    `Resume Summary & Background:\n\n${resumeText}\n\nJob Description:\n\n${jobDescription}`);
+
+  // Programmatically merge tailored details with the structured master resume if available!
+  let d = null;
+  try {
+    const structured = await Storage.getStructuredResume();
+    if (structured) {
+      const experience = (structured.experience || []).map(job => {
+        let bullets = [];
+        if (job.description) {
+          bullets = job.description.split('\n')
+            .map(b => b.trim().replace(/^[-•*+]\s*/, ''))
+            .filter(Boolean);
+        }
+        return {
+          company: job.company || "",
+          period: `${job.startDate || ""} - ${job.endDate || "Present"}`,
+          role: job.title || "",
+          location: job.location || "",
+          bullets
+        };
+      });
+
+      const education = (structured.education || []).map(edu => ({
+        org: edu.school || "",
+        year: edu.graduationDate || "",
+        major: edu.field || "",
+        degree: edu.degree || ""
+      }));
+
+      const skills = [
+        {
+          category: "Skills",
+          items: Array.isArray(structured.skills) ? structured.skills.join(", ") : (structured.skills || "")
+        }
+      ];
+
+      const projects = (structured.projects || []).map(p => {
+        let bullets = [];
+        if (p.description) {
+          bullets = p.description.split('\n')
+            .map(b => b.trim().replace(/^[-•*+]\s*/, ''))
+            .filter(Boolean);
+        }
+        return {
+          title: p.title || "",
+          role: p.role || "",
+          bullets
+        };
+      });
+
+      const certifications = (structured.certifications || []).map(c => {
+        let bullets = [];
+        if (c.description) {
+          bullets = c.description.split('\n')
+            .map(b => b.trim().replace(/^[-•*+]\s*/, ''))
+            .filter(Boolean);
+        }
+        return {
+          title: c.title || "",
+          org: c.org || "",
+          year: c.year || "",
+          bullets
+        };
+      });
+
+      d = {
+        name: structured.fullName || "",
+        email: structured.email || "",
+        linkedin_url: structured.linkedinUrl || "",
+        linkedin_display: structured.linkedinUrl ? structured.linkedinUrl.split('/').pop() : "",
+        location: structured.address ? (structured.address.city && structured.address.state ? `${structured.address.city}, ${structured.address.state}` : (structured.address.city || structured.address.state || "")) : "",
+        job_title: result.job_title || "Technical Support & Support Operations Leader",
+        company_name: result.company_name || "Company",
+        summary: result.summary,
+        competencies: result.competencies || [],
+        experience,
+        projects,
+        education,
+        certifications,
+        skills
+      };
+    }
+  } catch (e) {
+    console.error("Failed to merge with structured resume, using fallback", e);
+  }
+
+  if (!d) {
+    // Generic empty fallback template if structured parse is missing
+    d = {
+      name: profile.fullName || "Applicant Name",
+      email: profile.email || "email@example.com",
+      linkedin_url: profile.linkedinUrl || "",
+      linkedin_display: profile.linkedinUrl ? profile.linkedinUrl.split('/').pop() : "linkedin",
+      location: profile.address ? (profile.address.city && profile.address.state ? `${profile.address.city}, ${profile.address.state}` : (profile.address.city || profile.address.state || "")) : "Location",
+      job_title: result.job_title || "Role",
+      company_name: result.company_name || "Company",
+      summary: result.summary,
+      competencies: result.competencies || [],
+      experience: [],
+      projects: [],
+      education: [],
+      certifications: [],
+      skills: []
+    };
+  }
+
+  return d;
 }
 
 async function generateCoverJson(apiKey, jobDescription, resumeText) {
+  const profile = await Storage.getProfile();
+  const portfolioUrl = profile.portfolioUrl;
+  const firstName = profile.firstName || "Stephen";
+  
+  const portfolioText = portfolioUrl 
+    ? `My portfolio can be found at <a href="${portfolioUrl}">${portfolioUrl.replace(/^https?:\/\/(www\.)?/, '')}</a>.`
+    : '';
+  const finalParaRule = portfolioText
+    ? `- After the final paragraph, add ONE MORE separate paragraph containing exactly and only: "Thank you for considering my application. My portfolio can be found at <a href=\"${portfolioUrl}\">${portfolioUrl.replace(/^https?:\/\/(www\.)?/, '')}</a>."`
+    : `- After the final paragraph, add ONE MORE separate paragraph containing exactly and only: "Thank you for considering my application."`;
+
   const systemInstruction = `You generate tailored cover letters. Given a resume and job description, return a JSON object with cover letter content.
 
 WRITING RULES:
 - IMPORTANT: ALWAYS write the cover letter IN THE FIRST PERSON ("I", "my", "me"). 
-- NEVER refer to the applicant in the third person ("Stephen", "he", "his").
+- NEVER refer to the applicant in the third person (${profile.firstName ? `"${profile.firstName}", ` : ''}"he", "she", "his", "her").
 - 3-4 paragraphs, each 1-3 sentences. Short paragraphs by default.
 - Open with something specific and compelling about the company or role from the JD, not generic praise.
 - Every claim must be grounded in the resume. Use metrics from the resume when available. Be specific.
@@ -1160,7 +1344,7 @@ WRITING RULES:
 - NO NEGATIVE PARALLELISM: Do not use "Not X, but Y", "It isn't X. It's Y". Just state the positive claim directly.
 - NO ANALOGIES OR METAPHORS: Write literally. Do not use words like "bridge", "lens", "engine", "journey".
 - Final paragraph: brief, forward-looking, express interest in a conversation.
-- After the final paragraph, add ONE MORE separate paragraph containing exactly and only: "Thank you for considering my application. My portfolio can be found at <a href=\"https://bit.ly/skalamera-portfolio\">skalamera.me</a>."
+${finalParaRule}
 
 Return ONLY valid JSON matching this structure:
 {
@@ -1203,10 +1387,15 @@ Return ONLY valid JSON matching this structure:
     `Resume:\n\n${resumeText}\n\nJob Description:\n\n${jobDescription}`);
 }
 
-function generateFlatCvText(d) {
+function generateFlatCvText(d, portfolioUrl) {
   const lines = [];
   lines.push(d.name);
-  lines.push(`${d.email} | ${d.linkedin_url} | skalamera.me | ${d.location}`);
+  const contactParts = [d.email, d.linkedin_url];
+  if (portfolioUrl) {
+    contactParts.push(portfolioUrl.replace(/^https?:\/\/(www\.)?/, ''));
+  }
+  contactParts.push(d.location);
+  lines.push(contactParts.filter(Boolean).join(' | '));
   lines.push("");
   lines.push("PROFESSIONAL SUMMARY");
   lines.push(d.summary);
@@ -1254,150 +1443,68 @@ function esc(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function buildCvHtml(d) {
-  const competencies = d.competencies.map(c =>
+function buildCvHtml(d, portfolioUrl) {
+  const competencies = (d.competencies || []).map(c =>
     `        <li>${esc(c)}</li>`
   ).join("\n");
 
-  const experience = `    <div class="job avoid-break">
-      <div class="job-header">
-        <span class="job-company">Sigma</span>
-        <span class="job-period">September 2025 - Present</span>
-      </div>
-      <div class="job-subheader">
-        <span class="job-role">Technical Support Engineering Manager</span>
-        <span class="job-location">New York, NY, USA</span>
-      </div>
-      <ul>
-        <li>Lead the New York-based Technical Support Engineering team, managing hiring, onboarding, and performance, sustaining a 4.84/5 CSAT across enterprise customers.</li>
-        <li>Serve as a player-coach by providing hands-on support for complex technical issues and integrations via live chat, email, and Slack, while maintaining a 23-second average first response time and coaching the team on best practices.</li>
-        <li>Developed workforce models and a Python-based ML forecasting app that reduced planned headcount additions by 2 FTE through accurate ticket volume prediction.</li>
-        <li>Direct real-time queue health and staffing strategy, building operational dashboards and playbooks that stabilized backlog and maintained a 1.1-hour average resolution time.</li>
-        <li>Act as escalation lead for SEV-0/SEV-1 incidents, coordinating with Engineering, Product, and Customer Success to triage issues quickly and deliver clear, timely updates and post-incident summaries to stakeholders</li>
-        <li>Design and iterate support processes, runbooks, and AI-/data-powered tooling to reduce manual work, increase TSE productivity, and scale consistent best practices across regions.</li>
-      </ul>
-    </div>
-
+  const experience = (d.experience || []).map(job => `
     <div class="job avoid-break">
       <div class="job-header">
-        <span class="job-company">Benchmark Education Company</span>
-        <span class="job-period">March 2022 - August 2025</span>
+        <span class="job-company">${esc(job.company)}</span>
+        <span class="job-period">${esc(job.period)}</span>
       </div>
       <div class="job-subheader">
-        <span class="job-role">Lead, Customer Technical Support & Support Operations</span>
-        <span class="job-location">New Rochelle, NY, USA</span>
+        <span class="job-role">${esc(job.role)}</span>
+        <span class="job-location">${esc(job.location || "")}</span>
       </div>
       <ul>
-        <li>Led a hybrid team of 15 support agents plus a 5-person offshore vendor team, consistently exceeding KPIs and SLAs while reporting to the Director of Technology.</li>
-        <li>Automated workflows and API integrations (Freshdesk, Zendesk, RingCentral, etc.), reducing resolution time by 38% and improving first response time by 45% and average handling time by 32%, while maintaining CSAT above 98% annually.</li>
-        <li>Drove the design and launch of an in-house ticketing application and AI-powered performance review platform, achieving department-wide adoption and meaningful cost savings.</li>
-        <li>Built a Power BI Support Operations Hub with Python integrations and real-time call queue monitoring (RingCentral API + Freshdesk) to centralize metrics and support data-driven decisions.</li>
-        <li>Led cross-functional customer journey mapping and backlog prioritization, translating support insights into product improvements and better alignment across Product, Engineering, and Customer Success.</li>
+        ${(job.bullets || []).map(b => `<li>${esc(b)}</li>`).join("\n")}
       </ul>
     </div>
+  `).join("\n");
 
-    <div class="job avoid-break">
-      <div class="job-header">
-        <span class="job-company">BuildingLink</span>
-        <span class="job-period">October 2019 - March 2022</span>
-      </div>
-      <div class="job-subheader">
-        <span class="job-role">Technical Support & Training</span>
-        <span class="job-location">New York, NY, USA</span>
-      </div>
+  const projects = (d.projects || []).map(p => `
+    <div class="project avoid-break">
+      <div class="project-title">${esc(p.title)}</div>
+      <div class="project-role">${esc(p.role || "")}</div>
       <ul>
-        <li>Hosted on-site and remote training sessions on our platform to property management companies across the country.</li>
-        <li>Translated user feedback and insights into actionable bug reports and feature requests for development teams.</li>
-        <li>Managed a team in adopting a new support ticketing system (Freshdesk).</li>
-        <li>Assisted with the redesign of the company's help site for enhanced user-friendliness, modernity, and robustness.</li>
+        ${(p.bullets || []).map(b => `<li>${esc(b)}</li>`).join("\n")}
       </ul>
     </div>
+  `).join("\n");
 
-    <div class="job avoid-break">
-      <div class="job-header">
-        <span class="job-company">1010data</span>
-        <span class="job-period">April 2016 - August 2019</span>
-      </div>
-      <div class="job-subheader">
-        <span class="job-role">Customer Experience/Technical Support Lead</span>
-        <span class="job-location">New York, NY, USA</span>
-      </div>
-      <ul>
-        <li>Monitored, reviewed, and delivered Customer Experience staff’s KPIs weekly to upper management, including spot checking support tickets.</li>
-        <li>Managed the interviewing, hiring, training, and expansion of the Customer Experience Team as one of the initial team members and a team leader.</li>
-        <li>Managed all customer inquiries, and interactions on platform, excelling in conflict resolution to ensure positive customer outcomes.</li>
-        <li>Constructed the Knowledge Base from the ground up within Confluence, creating a comprehensive resource for customer support.</li>
-      </ul>
-    </div>
-
-    <div class="job avoid-break">
-      <div class="job-header">
-        <span class="job-company">Lytx</span>
-        <span class="job-period">July 2014 - April 2016</span>
-      </div>
-      <div class="job-subheader">
-        <span class="job-role">Senior Technical Support Engineer - Tier 3</span>
-        <span class="job-location">San Diego, CA, USA</span>
-      </div>
-      <ul>
-        <li>Elevated and managed Tech Support incidents as the main point of escalation for the Tier 3 Tech Support team, ensuring prompt resolution for customers.</li>
-        <li>Confirmed and documented technical issues, delivering rapid and effective technical solutions.</li>
-        <li>Utilized basic SQL query language to troubleshoot and query large databases.</li>
-        <li>Interfaced with infrastructure, databases, QA, and development teams as required to address customer issues.</li>
-      </ul>
-    </div>`;
-
-  const projects = `    <div class="project avoid-break">
-      <div class="project-title">Jedana AI - Intelligent Support Analytics - Link to Project</div>
-      <div class="project-role">Founder & Developer | Present</div>
-      <ul>
-        <li>Jedana is my spare-time project: a suite of AI-powered tools for support operations. It focuses on support analytics, agent/team performance, and customer health, enabling Support leaders to:</li>
-        <li>Automate ticket quality assurance for better agent coaching. AI analyzes interactions, provides detailed insights, and offers skill assessments with customizable AI-suggested ratings.</li>
-        <li>View real-time sentiment analysis and KPIs to track customer satisfaction, with AI-generated recommendations for CX improvement.</li>
-        <li>Create custom weighted metrics to analyze, normalize, and rank agent performance across channels, providing detailed AI-generated performance reviews.</li>
-      </ul>
-    </div>`;
-
-  const education = `    <div class="edu-item avoid-break">
+  const education = (d.education || []).map(edu => `
+    <div class="edu-item avoid-break">
       <div class="edu-header">
-        <span class="edu-org">University of Maryland - Baltimore County</span>
-        <span class="edu-year"></span>
+        <span class="edu-org">${esc(edu.org)}</span>
+        <span class="edu-year">${esc(edu.year || "")}</span>
       </div>
-      <div class="edu-desc"><em>Bachelor's</em>, Economics</div>
-    </div>`;
+      <div class="edu-desc"><em>${esc(edu.degree || "")}</em>, ${esc(edu.major || "")}</div>
+    </div>
+  `).join("\n");
 
-  const awards = `      <li>Gold Stevie® Award Winner in 2025 American Business Awards®</li>`;
+  const certifications = (d.certifications || []).map(c => `
+    <div style="font-weight: bold; font-size: 11px; margin-top: 2px;">${esc(c.title)} <span style="font-weight: normal;">| ${esc(c.org)} | ${esc(c.year)}</span></div>
+    ${c.bullets && c.bullets.length ? `
+    <ul>
+      ${c.bullets.map(b => `<li>${esc(b)}</li>`).join("\n")}
+    </ul>` : ''}
+  `).join("\n");
 
-  const certifications = `    <div style="font-weight: bold; font-size: 11px;">Anthropic AI Education & Certifications <span style="font-weight: normal;">| Anthropic | 2026</span></div>
-    <ul>
-      <li><strong>AI Fluency & Frameworks:</strong> Teaching AI Fluency, AI Fluency (Students, Educators, Framework & Foundations)</li>
-      <li><strong>Technical & Developer Skills:</strong> Building with Claude API, Model Context Protocol (Intro & Adv), Claude Code (101 & In Action), Agent Skills, Subagents, Claude Cowork</li>
-      <li><strong>Model Strategy & Safety:</strong> Claude 101, Claude with Google Cloud Vertex AI & Amazon Bedrock, AI Capabilities and Limitations</li>
-    </ul>
-    <div style="font-weight: bold; font-size: 11px; margin-top: 2px;">Microsoft Career Essentials <span style="font-weight: normal;">| Microsoft | 2023 \u2013 2025</span></div>
-    <ul>
-      <li>Generative AI, Data Analysis, and Project Management</li>
-    </ul>
-    <div style="font-weight: bold; font-size: 11px; margin-top: 2px;">Support Platform Expertise <span style="font-weight: normal;">| Various Issuers | 2024 \u2013 2026</span></div>
-    <ul>
-      <li><strong>Intercom:</strong> Designing & Implementing a Conversational Framework for Support Teams</li>
-      <li><strong>Freshworks:</strong> Freshdesk Product Expert</li>
-      <li><strong>Zendesk:</strong> Customer Service Professional Certificate</li>
-    </ul>
-    <div style="font-weight: bold; font-size: 11px; margin-top: 2px;">Academic & Executive AI <span style="font-weight: normal;">| Various Issuers | 2025 \u2013 2026</span></div>
-    <ul>
-      <li><strong>Harvard University:</strong> CS50x - Computer Science for AI</li>
-      <li><strong>Babson College:</strong> MIS01x: AI for Leaders</li>
-    </ul>`;
+  const skills = (d.skills || []).map(s => `
+    <li><strong>${esc(s.category)}:</strong> ${esc(s.items)}</li>
+  `).join("\n");
 
-  const skills = `      <li><strong>Leadership:</strong> Team Leadership, Hybrid/Remote Team Management, Global Support Operations, Cross-Functional Collaboration, Coaching & Mentoring, Conflict Resolution, Stakeholder Management</li>
-      <li><strong>AI:</strong> Cursor, Gemini, ChatGPT, Prompt Engineering, Prompt Evaluation, Pinecone, Langfuse, LLM, Fin (Intercom), Glean, Model Context Protocol (MCP), Opencode, Claude API, Claude, Claude Cowork, Claude Code, Codex, Agentic AI Workflow</li>
-      <li><strong>Technical & Tools:</strong> REST API's, Freshdesk, Zendesk, RingCentral, Jira, Sigma, Salesforce, NetSuite, Confluence, Power BI, Tableau, BigQuery, Redshift, Azure, Snowflake, Excel, Python, HTML/CSS, JavaScript, SQL, Process Automation Design, Google Cloud Platform, Zapier, Vercel, Supabase, React, Docker, Databricks</li>
-      <li><strong>Support & Operations:</strong> Technical Support Engineering, Customer Experience Analytics, Customer Journey Mapping, Escalation Management, Incident Management, Performance Management, Process Improvement, Knowledge Management</li>`;
+  const awards = (d.awards || []).map(a => `<li>${esc(a)}</li>`).join("\n");
 
   const docTitle = d.job_title && d.company_name 
     ? `${d.job_title} - ${d.company_name} - CV`
     : `${d.name} \u2014 CV`;
+
+  const portfolioText = portfolioUrl 
+    ? `      <span class="separator">|</span>\n      <a href="${esc(portfolioUrl)}" style="color: hsl(187, 74%, 32%);">${esc(portfolioUrl.replace(/^https?:\/\/(www\.)?/, ''))}</a>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1468,8 +1575,7 @@ function buildCvHtml(d) {
       <span>${esc(d.email)}</span>
       <span class="separator">|</span>
       <a href="https://${esc(d.linkedin_url)}">${esc(d.linkedin_display)}</a>
-      <span class="separator">|</span>
-      <a href="https://bit.ly/skalamera-portfolio" style="color: hsl(187, 74%, 32%);">skalamera.me</a>
+      ${portfolioText}
       <span class="separator">|</span>
       <span>${esc(d.location)}</span>
     </div>
@@ -1480,51 +1586,57 @@ function buildCvHtml(d) {
     <div class="summary-text">${esc(d.summary)}</div>
   </div>
 
+  ${skills ? `
   <div class="section">
     <div class="section-title">Skills</div>
     <ul>
 ${skills}
     </ul>
-  </div>
+  </div>` : ''}
 
+  ${experience ? `
   <div class="section">
     <div class="section-title">Professional Experience</div>
 ${experience}
-  </div>
+  </div>` : ''}
 
+  ${projects ? `
   <div class="section avoid-break">
     <div class="section-title">Projects</div>
 ${projects}
-  </div>
+  </div>` : ''}
 
+  ${certifications ? `
   <div class="section avoid-break">
     <div class="section-title">Certifications</div>
 ${certifications}
-  </div>
+  </div>` : ''}
 
+  ${education ? `
   <div class="section avoid-break">
     <div class="section-title">Education</div>
 ${education}
-  </div>
+  </div>` : ''}
 
+  ${awards ? `
   <div class="section avoid-break">
     <div class="section-title">Awards</div>
     <ul>
 ${awards}
     </ul>
-  </div>
+  </div>` : ''}
 
 </div>
 </body>
 </html>`;
 }
 
-function buildCoverHtml(d, resumeText) {
+function buildCoverHtml(d, resumeText, portfolioUrl) {
   const today = new Date();
   const dateStr = today.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const paragraphs = d.paragraphs.map(p => {
     let escaped = esc(p);
-    escaped = escaped.replace(/&lt;a href=&quot;https:\/\/bit\.ly\/skalamera-portfolio&quot;&gt;skalamera\.me&lt;\/a&gt;/g, '<a href="https://bit.ly/skalamera-portfolio">skalamera.me</a>');
+    escaped = escaped.replace(/&lt;a href=&quot;(.*?)&quot;&gt;(.*?)&lt;\/a&gt;/gi, '<a href="$1">$2</a>');
     return `      <p>${escaped}</p>`;
   }).join("\n\n");
 
@@ -1544,6 +1656,10 @@ function buildCoverHtml(d, resumeText) {
   const docTitle = d.role && d.company 
     ? `${d.role} - ${d.company} - Cover Letter`
     : `${name} \u2014 Cover Letter \u2014 ${d.company || 'Company'}`;
+
+  const portfolioText = portfolioUrl 
+    ? `      <span class="separator">|</span>\n      <a href="${esc(portfolioUrl)}" style="color: hsl(187, 74%, 32%);">${esc(portfolioUrl.replace(/^https?:\/\/(www\.)?/, ''))}</a>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1586,8 +1702,7 @@ function buildCoverHtml(d, resumeText) {
       <span>${esc(email)}</span>
       <span class="separator">|</span>
       <a href="https://${esc(linkedin)}">${esc(linkedin)}</a>
-      <span class="separator">|</span>
-      <a href="https://bit.ly/skalamera-portfolio" style="color: hsl(187, 74%, 32%);">skalamera.me</a>
+      ${portfolioText}
       <span class="separator">|</span>
       <span>${esc(location)}</span>
     </div>
@@ -1710,6 +1825,9 @@ async function handleMessage(message, sender) {
 
     case 'TEST_API_KEY':
       return await handleTestApiKey(message.payload);
+
+    case 'TEST_PRO_TOKEN':
+      return await handleTestProToken(message.payload);
 
     case 'CLEAR_RESUME':
       return await handleClearResume();
@@ -1875,7 +1993,8 @@ async function handleGenerateCoverLetter({ jobDescription: originalJobDescriptio
     console.error("Failed to load active clip for autofill cover letter", e);
   }
   
-  const coverLetter = await Gemini.generateCoverLetter(apiKey, resumeText, jobDescription, companyName, roleTitle);
+  const profile = await Storage.getProfile();
+  const coverLetter = await Gemini.generateCoverLetter(apiKey, resumeText, jobDescription, companyName, roleTitle, profile.portfolioUrl);
   return { coverLetter };
 }
 
@@ -1923,6 +2042,34 @@ async function handleTestApiKey({ apiKey }) {
   try {
     await Gemini.call(apiKey, 'Say "OK" and nothing else.');
     return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+async function handleTestProToken({ token }) {
+  try {
+    const response = await fetch('https://clydeai.live/api/proxy', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: 'Say "OK" and nothing else.' }] }],
+        model: 'gemini-3.5-flash'
+      })
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      return { success: false, error: err?.error || `HTTP ${response.status}: ${response.statusText}` };
+    }
+    const data = await response.json();
+    const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    if (candidateText.trim()) {
+      return { success: true };
+    }
+    return { success: false, error: 'Empty response received from Pro server.' };
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -1977,7 +2124,13 @@ async function flushUnsyncedClips() {
               clip.companyName || 'Unknown Company',
               clip.text || '',
               clip.jobTitle || '',
-              opts
+              opts,
+              {
+                score: clip.score,
+                topStrength: clip.topStrength,
+                mainGap: clip.mainGap,
+                mitigation: clip.mitigation
+              }
             );
             console.log('[background] Successfully synced queued clip:', clip.companyName);
           } catch (err) {

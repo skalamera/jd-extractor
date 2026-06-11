@@ -297,6 +297,46 @@ const FormFiller = {
     const wo = workAuthCanon(normalizedOptionValue);
     if (String(wa).startsWith('__wa_') && (wa === wl || wa === wo)) return true;
 
+    const veteranCanon = (s) => {
+      const t = this.normalizeChoiceText(s);
+      const isVeteranButNotProtected = 
+        /\b(i\s+am|identify\s+as)\s+a\s+veteran\b/.test(t) ||
+        /\bveteran\b.*\bnot\s+(a\s+)?protected\b/.test(t);
+
+      if (isVeteranButNotProtected) {
+        return '__v_veteran_not_protected__';
+      }
+      if (
+        (t.includes('not a protected veteran') && !isVeteranButNotProtected) ||
+        /\bnot\s+a\s+veteran\b/.test(t) ||
+        /\bi\s+am\s+not\s+a\s+veteran\b/.test(t) ||
+        /\bno\b.*\bnot\s+a\s+protected\s+veteran\b/.test(t)
+      ) {
+        return '__v_no__';
+      }
+      if (
+        !isVeteranButNotProtected && (
+          /\bprotected\s+veteran\b/.test(t) ||
+          /\bidentify\s+as\s+one\s+or\s+more\b.*\bprotected\b/.test(t) ||
+          /\byes\b.*\bprotected\s+veteran\b/.test(t)
+        )
+      ) {
+        return '__v_yes__';
+      }
+      if (
+        /\bdecline\b/.test(t) ||
+        /\bdo\s+not\s+wish\b/.test(t) ||
+        /\bchoose\s+not\s+to\b/.test(t)
+      ) {
+        return '__v_decline__';
+      }
+      return t;
+    };
+    const va_v = veteranCanon(normalizedAnswer);
+    const vl_v = veteranCanon(normalizedLabel);
+    const vo_v = veteranCanon(normalizedOptionValue);
+    if (String(va_v).startsWith('__v_') && (va_v === vl_v || va_v === vo_v)) return true;
+
     const answerTokens = this.tokenizeChoice(normalizedAnswer);
     const labelTokens = this.tokenizeChoice(normalizedLabel);
     const optionTokens = this.tokenizeChoice(normalizedOptionValue);
@@ -656,9 +696,9 @@ const FormFiller = {
             const autoId = curr.getAttribute?.('data-automation-id') || '';
             const className = curr.className || '';
             const tagName = curr.tagName.toLowerCase();
-            if (/typeahead|autocomplete|combobox|search|select|dropdown/i.test(autoId) ||
-                /typeahead|autocomplete|combobox|search|select|dropdown/i.test(className) ||
-                /typeahead|autocomplete|combobox|search|select|dropdown/i.test(tagName) ||
+            if (/typeahead|autocomplete|combobox|search|select|dropdown|prompt/i.test(autoId) ||
+                /typeahead|autocomplete|combobox|search|select|dropdown|prompt/i.test(className) ||
+                /typeahead|autocomplete|combobox|search|select|dropdown|prompt/i.test(tagName) ||
                 tagName === 'select' ||
                 curr.getAttribute?.('role') === 'combobox') {
               return true;
@@ -669,9 +709,9 @@ const FormFiller = {
               const hostAutoId = host.getAttribute?.('data-automation-id') || '';
               const hostClassName = host.className || '';
               const hostTagName = host.tagName.toLowerCase();
-              if (/typeahead|autocomplete|combobox|search|select|dropdown/i.test(hostAutoId) ||
-                  /typeahead|autocomplete|combobox|search|select|dropdown/i.test(hostClassName) ||
-                  /typeahead|autocomplete|combobox|search|select|dropdown/i.test(hostTagName)) {
+              if (/typeahead|autocomplete|combobox|search|select|dropdown|prompt/i.test(hostAutoId) ||
+                  /typeahead|autocomplete|combobox|search|select|dropdown|prompt/i.test(hostClassName) ||
+                  /typeahead|autocomplete|combobox|search|select|dropdown|prompt/i.test(hostTagName)) {
                 return true;
               }
             }
@@ -800,6 +840,13 @@ const FormFiller = {
     return r.width >= 2 && r.height >= 2;
   },
 
+  isVisibleListbox(el) {
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+    return true;
+  },
+
   async fireKey(element, key, code, keyCode) {
     const createEvent = (type) => {
       const ev = new KeyboardEvent(type, { key, code, bubbles: true, cancelable: true, composed: true, view: window });
@@ -822,23 +869,38 @@ const FormFiller = {
     }
     // Search parent hierarchy
     let current = input;
+    const selectors = '[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"], sf-typeahead, spl-overlay, sf-overlay, sf-list-box, spl-list-box, sf-typeahead-items, [data-automation-id*="popup"], [data-automation-id*="promptPopup"], [data-automation-id*="prompt"]';
     for (let i = 0; i < 6 && current; i++) {
-      const listbox = this.querySelectorDeep('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"], sf-typeahead, spl-overlay, sf-overlay, sf-list-box, spl-list-box, sf-typeahead-items', current);
-      if (listbox && this.isVisibleOption(listbox)) return listbox;
+      const listbox = this.querySelectorDeep(selectors, current);
+      if (listbox && this.isVisibleListbox(listbox)) return listbox;
       current = current.parentNode || current.host;
     }
-    // Search globally using querySelectorDeep (crosses shadow boundaries)
-    const globalLb = this.querySelectorDeep('[role="listbox"], [class*="listbox"], [class*="menu"], [class*="dropdown"], sf-typeahead, spl-overlay, sf-overlay, sf-list-box, spl-list-box, sf-typeahead-items');
-    if (globalLb && this.isVisibleOption(globalLb)) return globalLb;
+    // Search globally using querySelectorAllDeep to find any visible matching listbox
+    const globalLbs = this.querySelectorAllDeep(selectors);
+    const visibleLb = globalLbs.find(lb => this.isVisibleListbox(lb));
+    if (visibleLb) return visibleLb;
+
+    // Fallback: search for any visible option and climb up to get its listbox container
+    const optSelectors = '[role="option"], [data-automation-id*="option"], [data-automation-id="promptOption"], [class*="option"]';
+    const globalOpts = this.querySelectorAllDeep(optSelectors);
+    const visibleOpt = globalOpts.find(o => this.isVisibleOption(o));
+    if (visibleOpt) {
+      const lb = visibleOpt.closest('[role="listbox"], [data-automation-id*="popup"], [data-automation-id*="promptPopup"], [class*="popup"], [class*="listbox"], [class*="dropdown"]') || visibleOpt.parentElement;
+      if (lb) {
+        console.log('[JobAutoFill Listbox Fallback] Found listbox via visible option sibling:', lb);
+        return lb;
+      }
+    }
     return null;
   },
 
   async waitForOptions(input, timeoutMs = 2500) {
     const start = Date.now();
+    const optSelectors = '[role="option"], li, a, [class*="option"], [class*="item"], [id*="option"], [id*="item"], [data-automation-id*="option"], [data-automation-id*="promptOption"], [data-automation-id="promptOption"]';
     while (Date.now() - start < timeoutMs) {
       const lb = this.getListboxElForField(input);
       if (lb) {
-        const opts = this.querySelectorAllDeep('[role="option"], li, a, [class*="option"], [class*="item"], [id*="option"], [id*="item"]', lb)
+        const opts = this.querySelectorAllDeep(optSelectors, lb)
           .filter(o => this.isVisibleOption(o));
         if (opts.length > 0) return { lb, visible: opts };
       }
@@ -864,7 +926,7 @@ const FormFiller = {
 
     // 0. Click combobox/select dropdown elements to focus / open them
     const tagName = interact.tagName.toLowerCase();
-    const isEditable = tagName === 'input' || tagName === 'textarea';
+    const isEditable = (tagName === 'input' || tagName === 'textarea') && !interact.hasAttribute('readonly');
     
     console.log(`[JobAutoFill Typeahead] Element isEditable=${isEditable} (tagName=${tagName})`);
     
@@ -1118,9 +1180,25 @@ const FormFiller = {
   },
 
   fillCheckbox(element, value, purpose = '', label = '') {
-    const shouldCheck = /^(yes|true|1|checked|agree|acknowledge|accept|statement|disclosure)$/i.test(String(value)) ||
-                        /agree|acknowledge|accept|statement|disclosure|philosophy/i.test(String(purpose || '')) ||
-                        /agree|acknowledge|accept|statement|disclosure|philosophy/i.test(String(label || ''));
+    const normalizedValue = FormFiller.normalizeProfileChoice ? FormFiller.normalizeProfileChoice(value) : String(value).toLowerCase().trim();
+    const cleanLabel = (label || (FormFiller.getChoiceLabel ? FormFiller.getChoiceLabel(element) : '') || '').trim();
+
+    let shouldCheck = false;
+
+    // Check if the profile value directly matches the option label/text (e.g. for multi-choice checkbox questions)
+    if (cleanLabel && normalizedValue && (
+      (FormFiller.matchesChoice && FormFiller.matchesChoice(cleanLabel, element.value, normalizedValue)) ||
+      cleanLabel.toLowerCase().includes(normalizedValue) ||
+      normalizedValue.includes(cleanLabel.toLowerCase())
+    )) {
+      shouldCheck = true;
+    } else {
+      // Fallback to truthy boolean check (e.g. for single agreement/acknowledgement checkboxes)
+      shouldCheck = /^(yes|true|1|checked|agree|acknowledge|accept|statement|disclosure)$/i.test(String(value)) ||
+                    /agree|acknowledge|accept|statement|disclosure|philosophy/i.test(String(purpose || '')) ||
+                    /agree|acknowledge|accept|statement|disclosure|philosophy/i.test(String(label || ''));
+    }
+
     if (element.checked !== shouldCheck) {
       element.checked = shouldCheck;
       element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
@@ -1197,9 +1275,15 @@ const FormFiller = {
       for (const option of options) {
         const optionText = option.textContent.trim();
         const optionVal = option.getAttribute('data-value') || '';
-        if (this.matchesChoice(optionText, optionVal, value) ||
-            optionText.toLowerCase().includes(String(value).toLowerCase().trim()) ||
-            String(value).toLowerCase().trim().includes(optionText.toLowerCase())) {
+        const optLower = optionText.toLowerCase().trim();
+        const valLower = String(value).toLowerCase().trim();
+        const isGenderMismatch = (valLower === 'male' && optLower === 'female') || (valLower === 'female' && optLower === 'male');
+
+        if (!isGenderMismatch && (
+            this.matchesChoice(optionText, optionVal, value) ||
+            optLower.includes(valLower) ||
+            valLower.includes(optLower)
+        )) {
           
           try {
             option.scrollIntoView({ block: 'nearest' });

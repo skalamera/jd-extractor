@@ -23,11 +23,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   const enablePdfCanary = document.getElementById('enable-pdf-canary');
 
   // Load existing data
-  const data = await chrome.storage.local.get(['geminiApiKey', 'masterResumeText', 'activeResumeText', 'profile', 'customQA', 'enableAdversarialPdfCanary']);
+  const data = await chrome.storage.local.get(['geminiApiKey', 'clydeProToken', 'masterResumeText', 'activeResumeText', 'profile', 'customQA', 'enableAdversarialPdfCanary']);
 
   if (data.geminiApiKey) {
     apiKeyInput.placeholder = '••••••••••••••••';
     setStatus(keyStatus, 'API key saved', 'success');
+  }
+
+  // Clyde Pro Token elements
+  const proTokenInput = document.getElementById('pro-token');
+  const saveProBtn = document.getElementById('save-pro-btn');
+  const testProBtn = document.getElementById('test-pro-btn');
+  const proStatus = document.getElementById('pro-status');
+
+  if (data.clydeProToken) {
+    proTokenInput.placeholder = '••••••••••••••••';
+    setStatus(proStatus, 'Pro Token saved', 'success');
   }
 
   if (data.masterResumeText) {
@@ -77,6 +88,38 @@ document.addEventListener('DOMContentLoaded', async () => {
       setStatus(keyStatus, `Failed: ${result.error}`, 'error');
     }
   });
+
+  // Clyde Pro Token handlers
+  if (saveProBtn) {
+    saveProBtn.addEventListener('click', async () => {
+      const token = proTokenInput.value.trim();
+      if (!token) return;
+      await chrome.storage.local.set({ clydeProToken: token });
+      proTokenInput.value = '';
+      proTokenInput.placeholder = '••••••••••••••••';
+      setStatus(proStatus, 'Pro Token saved', 'success');
+    });
+  }
+
+  if (testProBtn) {
+    testProBtn.addEventListener('click', async () => {
+      setStatus(proStatus, 'Testing token...', 'loading');
+      const tokenToTest = proTokenInput.value.trim() || (await chrome.storage.local.get('clydeProToken')).clydeProToken;
+      if (!tokenToTest) {
+        setStatus(proStatus, 'Please enter a token first', 'error');
+        return;
+      }
+      const result = await chrome.runtime.sendMessage({
+        type: 'TEST_PRO_TOKEN',
+        payload: { token: tokenToTest }
+      });
+      if (result.success) {
+        setStatus(proStatus, 'Token is active! Unlocked Clyde Pro.', 'success');
+      } else {
+        setStatus(proStatus, `Failed: ${result.error}`, 'error');
+      }
+    });
+  }
 
   // Resume upload
   uploadArea.addEventListener('click', () => resumeInput.click());
@@ -359,7 +402,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             clip.companyName || 'Unknown Company',
             clip.text || '',
             clip.jobTitle || '',
-            opts
+            opts,
+            {
+              score: clip.score,
+              topStrength: clip.topStrength,
+              mainGap: clip.mainGap,
+              mitigation: clip.mitigation
+            }
           );
           synced++;
         } catch (e) {
