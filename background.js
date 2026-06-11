@@ -200,11 +200,14 @@ chrome.action.onClicked.addListener((tab) => {
 // ── Message handler (popup-initiated generation) ─────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Only accept messages from the extension itself
+  if (sender.id !== chrome.runtime.id) return;
+
   if (msg.type === 'AUTOFILL_PROGRESS' || msg.type === 'AUTOFILL_DONE' || msg.type === 'AUTOFILL_ERROR') {
     if (sender.tab) {
       chrome.tabs.sendMessage(sender.tab.id, msg).catch(() => {});
     }
-    return true;
+    return false;
   }
 
   if (msg.action === "generate") {
@@ -247,12 +250,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   
-  if (msg.type) {
+  // Extension-page-only types: these should never come from a content script (tab context)
+  const EXTENSION_PAGE_ONLY_TYPES = ['TEST_PRO_TOKEN', 'CLEAR_RESUME', 'DOWNLOAD_COVER_LETTER'];
+  if (EXTENSION_PAGE_ONLY_TYPES.includes(msg.type) && sender.tab) {
+    console.warn('Blocked privileged message from content script:', msg.type);
+    return false;
+  }
+
+  // Known handleMessage types
+  const KNOWN_HANDLE_TYPES = ['ANALYZE_RESUME', 'FILL_FIELDS', 'GENERATE_COVER_LETTER',
+    'GET_PROFILE', 'GET_RESUME_FILE', 'PARSE_PDF', 'TEST_API_KEY', 'TEST_PRO_TOKEN',
+    'CLEAR_RESUME', 'DOWNLOAD_COVER_LETTER', 'AUDIT_RESUME'];
+
+  if (msg.type && KNOWN_HANDLE_TYPES.includes(msg.type)) {
     handleMessage(msg, sender).then(sendResponse).catch(err => {
       console.error('Service worker error:', err);
       sendResponse({ error: err.message });
     });
     return true; // keep channel open for async response
+  }
+
+  // Unknown message type — log warning and reject
+  if (msg.type) {
+    console.warn('Unknown message type received:', msg.type);
+    return false;
   }
 });
 
@@ -628,6 +649,7 @@ async function handleAiAnswer(question, tab, type = "custom") {
           target: { tabId: tab.id },
           args: [question],
           func: (highlightedQuestion) => {
+            function _escape(str) { if (str == null) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
             return new Promise((resolve) => {
               const overlay = document.createElement('div');
               Object.assign(overlay.style, {
@@ -663,7 +685,7 @@ async function handleAiAnswer(question, tab, type = "custom") {
                   <div style="margin-bottom: 20px !important; display: block !important; position: relative !important;">
                     <div style="font-size: 11px !important; font-weight: 600 !important; color: #94a3b8 !important; text-transform: uppercase !important; letter-spacing: 0.05em !important; margin-bottom: 6px !important; line-height: 1.2 !important; display: block !important; position: relative !important;">Selected Question</div>
                     <div style="background: rgba(15, 23, 42, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.05) !important; border-radius: 6px !important; padding: 12px !important; color: #cbd5e1 !important; font-size: 13px !important; line-height: 1.5 !important; max-height: 90px !important; overflow-y: auto !important; font-style: italic !important; display: block !important; position: relative !important; text-align: left !important; box-sizing: border-box !important;">
-                      "${highlightedQuestion}"
+                      "${_escape(highlightedQuestion)}"
                     </div>
                   </div>
                 `;

@@ -614,12 +614,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       .filter(qa => qa.question && qa.answer);
   }
 
-  function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  }
-
   function setStatus(el, text, className) {
     el.textContent = text;
     el.className = `status ${className || ''}`;

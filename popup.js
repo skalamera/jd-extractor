@@ -15,6 +15,8 @@ if (window.location.search.includes('sidebar=true')) {
   document.head.appendChild(style);
 }
 
+const CLYDE_NONCE = new URLSearchParams(location.search).get('nonce');
+
 const container = document.getElementById("clips-container");
 const tabs = document.querySelectorAll(".tab");
 const trackerFilters = document.getElementById("tracker-filters");
@@ -114,7 +116,13 @@ if (btnGetJd) {
       if (isSidebar) {
         // Use 100% reliable postMessage to parent host page to bypass all MV3 scripting / tab query restrictions!
         const handleResponse = async (event) => {
+          // Only accept responses from the parent frame (web page hosting the sidebar)
+          if (event.source !== window.parent) return;
           if (event.data && event.data.type === 'CLYDE_EXTRACT_RESPONSE') {
+            // Nonce check: reject messages whose nonce doesn't match the sidebar's nonce
+            if (event.data.nonce !== CLYDE_NONCE) return;
+            // Validate that text and url are strings, not arbitrary objects
+            if (typeof event.data.text !== 'string' || typeof event.data.url !== 'string') return;
             window.removeEventListener('message', handleResponse);
             const text = event.data.text;
             if (text) {
@@ -428,7 +436,7 @@ function render() {
           }
       }
       
-      header.innerHTML = `<span style="display: flex; align-items: center;">${headerText}${countHtml}</span><span class="chevron">&#9660;</span>`;
+      header.innerHTML = `<span style="display: flex; align-items: center;">${escapeHtml(headerText)}${countHtml}</span><span class="chevron">&#9660;</span>`;
       container.appendChild(header);
     }
 
@@ -455,14 +463,14 @@ function createClipElement(clip, isActive) {
   div.className = "clip" + (isActive ? " active" : "");
   div.dataset.idx = idx;
 
-  const safeText = clip.text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const safeUrl = (clip.url || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const safeText = escapeHtml(clip.text || "");
+  const safeUrl = escapeHtml(clip.url || "");
   
-  const title = clip.jobTitle || "Unknown Title";
-  const company = clip.companyName || "Unknown Company";
-  const loc = clip.location || "Unknown Location";
-  const archetype = clip.archetype && clip.archetype !== "Unknown" ? clip.archetype : "";
-  const salary = clip.salary && clip.salary !== "Unknown" ? clip.salary : "";
+  const title = escapeHtml(clip.jobTitle || "Unknown Title");
+  const company = escapeHtml(clip.companyName || "Unknown Company");
+  const loc = escapeHtml(clip.location || "Unknown Location");
+  const archetype = clip.archetype && clip.archetype !== "Unknown" ? escapeHtml(clip.archetype) : "";
+  const salary = clip.salary && clip.salary !== "Unknown" ? escapeHtml(clip.salary) : "";
   const score = clip.score !== undefined ? clip.score : null;
   
   let scoreHtml = '';
@@ -479,9 +487,9 @@ function createClipElement(clip, isActive) {
     
     gapAnalysisHtml = `
       <div class="clip-gap-analysis" id="gap-${idx}">
-        <div class="clip-gap-row"><strong>✓ Top Strength:</strong> ${clip.topStrength || "Not calculated."}</div>
-        <div class="clip-gap-row"><strong>✗ Main Gap:</strong> ${clip.mainGap || "Not calculated."}</div>
-        <div class="clip-gap-row"><strong>💡 Mitigation:</strong> ${clip.mitigation || "Not calculated."}</div>
+        <div class="clip-gap-row"><strong>✓ Top Strength:</strong> ${escapeHtml(clip.topStrength || "Not calculated.")}</div>
+        <div class="clip-gap-row"><strong>✗ Main Gap:</strong> ${escapeHtml(clip.mainGap || "Not calculated.")}</div>
+        <div class="clip-gap-row"><strong>💡 Mitigation:</strong> ${escapeHtml(clip.mitigation || "Not calculated.")}</div>
       </div>
     `;
   }
@@ -516,7 +524,7 @@ function createClipElement(clip, isActive) {
   let statusControl = "";
   if (currentTab === "tracker" || currentTab === "archived") {
     statusControl = `
-      <select class="status-dropdown full-width ${clip.trackerStatus}" data-status-idx="${idx}">
+      <select class="status-dropdown full-width ${escapeHtml(clip.trackerStatus || '')}" data-status-idx="${idx}">
         <option value="Applied" ${clip.trackerStatus === 'Applied' ? 'selected' : ''}>Applied</option>
         <option value="Interviewing" ${clip.trackerStatus === 'Interviewing' ? 'selected' : ''}>Interviewing</option>
         <option value="Rejected" ${clip.trackerStatus === 'Rejected' ? 'selected' : ''}>Rejected</option>
@@ -526,7 +534,7 @@ function createClipElement(clip, isActive) {
     `;
   }
 
-  const titleHtml = `<span class="editable-title" data-idx="${idx}" contenteditable="true" spellcheck="false" title="Click to edit title">${title.replace(/</g, "&lt;")}</span>` + 
+  const titleHtml = `<span class="editable-title" data-idx="${idx}" contenteditable="true" spellcheck="false" title="Click to edit title">${title}</span>` + 
     (safeUrl ? ` <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" title="Go to application" style="color: #9ca3af; margin-left: 4px; text-decoration: none; vertical-align: middle;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg></a>` : '');
 
   div.innerHTML = `
@@ -544,7 +552,7 @@ function createClipElement(clip, isActive) {
           ${heartBtnHtml}
         </div>
       </div>
-      <div class="clip-company-meta"><span class="editable-company" data-idx="${idx}" contenteditable="true" spellcheck="false" title="Click to edit company">${company.replace(/</g, "&lt;")}</span> &bull; ${loc.replace(/</g, "&lt;")}</div>
+      <div class="clip-company-meta"><span class="editable-company" data-idx="${idx}" contenteditable="true" spellcheck="false" title="Click to edit company">${company}</span> &bull; ${loc}</div>
       ${archMetaHtml}
       ${gapAnalysisHtml}
     </div>
@@ -1107,7 +1115,7 @@ async function loadClydeClient() {
 
 function showFeedback(el, cls, msg) {
   if (!el) return;
-  el.innerHTML = `<div class="gen-status ${cls}">${msg.replace(/</g, "&lt;")}</div>`;
+  el.innerHTML = `<div class="gen-status ${cls}">${escapeHtml(msg)}</div>`;
   el.classList.add("show");
   setTimeout(() => { el.classList.remove("show"); el.innerHTML = ""; }, 4000);
 }

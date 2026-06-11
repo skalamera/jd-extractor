@@ -42,3 +42,12 @@ chrome_debug.log
 
 # OneDrive sync metadata
 ~$*
+
+# OpenClaw agent workspace artifacts
+.openclaw/
+AGENTS.md
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md

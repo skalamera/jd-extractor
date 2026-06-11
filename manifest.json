@@ -34,8 +34,6 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "anti-ai-writing-style.md",
-        "lib/clyde-client.js",
         "content/portal-handlers/smartrecruiters-inject.js",
         "icons/icon48.png",
         "icons/icon128.png",
@@ -54,6 +52,7 @@
       "matches": ["<all_urls>"],
       "all_frames": true,
       "js": [
+        "lib/escape.js",
         "content/portal-handlers/index.js",
         "content/portal-handlers/ashby.js",
         "content/portal-handlers/greenhouse.js",

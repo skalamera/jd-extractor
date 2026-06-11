@@ -1303,7 +1303,7 @@ const FormFiller = {
 
   fillContentEditable(element, value) {
     element.focus();
-    element.innerHTML = value.replace(/\n/g, '<br>');
+    element.innerHTML = escapeHtml(value).replace(/\n/g, '<br>');
     element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
     element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
     return true;

@@ -28,7 +28,7 @@ PortalHandlers.register({
 
   detect(url) {
     return /myworkdayjobs\.com|workday\.com\/.*\/job/i.test(url) ||
-      !!document.querySelector('[data-automation-id]');
+      !!document.querySelector('[data-automation-id="jobPostingHeader"], [data-automation-id^="formField-"]');
   },
 
   getFields() {

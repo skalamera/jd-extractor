@@ -10,6 +10,7 @@
   let sidebarIframe = null;
   let linkedinInterval = null;
   let spaInterval = null;
+  const clydeNonce = crypto.randomUUID();
 
   function isContextValid() {
     try {
@@ -24,7 +25,7 @@
 
     if (sidebarIframe) {
       if (sidebarIframe.style.display === 'none') {
-        sidebarIframe.src = chrome.runtime.getURL('popup.html?sidebar=true');
+        sidebarIframe.src = chrome.runtime.getURL('popup.html?sidebar=true') + '&nonce=' + clydeNonce;
         sidebarIframe.style.display = 'block';
         setTimeout(() => {
           sidebarIframe.style.opacity = '1';
@@ -41,7 +42,7 @@
       sidebarIframe = document.createElement('iframe');
       sidebarIframe.id = 'clyde-sidebar-iframe';
       sidebarIframe.setAttribute('allow', 'clipboard-write');
-      sidebarIframe.src = chrome.runtime.getURL('popup.html?sidebar=true');
+      sidebarIframe.src = chrome.runtime.getURL('popup.html?sidebar=true') + '&nonce=' + clydeNonce;
       sidebarIframe.style.cssText = `
         position: fixed !important;
         top: 20px !important;
@@ -66,8 +67,13 @@
     }
   }
 
-  // Listen for sidebar messages (e.g. CLOSE_SIDEBAR)
+  // Listen for sidebar messages (e.g. CLOSE_SIDEBAR) — only from our own sidebar iframe
   window.addEventListener('message', (event) => {
+    // Reject messages not from the sidebar iframe
+    if (!sidebarIframe || event.source !== sidebarIframe.contentWindow) return;
+    // Reject unexpected origins as defense-in-depth
+    if (event.origin !== chrome.runtime.getURL('').replace(/\/$/, '')) return;
+
     if (event.data && event.data.type === 'CLOSE_SIDEBAR') {
       if (sidebarIframe && sidebarIframe.style.display !== 'none') {
         sidebarIframe.style.opacity = '0';
@@ -114,6 +120,7 @@
       if (iframe && iframe.contentWindow) {
         iframe.contentWindow.postMessage({
           type: 'CLYDE_EXTRACT_RESPONSE',
+          nonce: clydeNonce,
           text: textToExtract,
           url: window.location.href
         }, '*');
@@ -707,7 +714,7 @@
       const statusEl = getOverlayElement('job-autofill-status');
       if (statusEl) {
         statusEl.innerHTML = `
-          <div style="color: #ea4335; margin-bottom: 12px; line-height: 1.4 !important; display: block !important;">${message}</div>
+          <div style="color: #ea4335; margin-bottom: 12px; line-height: 1.4 !important; display: block !important;">${escapeHtml(message)}</div>
           <button id="job-autofill-error-dismiss-btn" style="width: 100%; padding: 6px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 4px; cursor: pointer; color: #374151; font-weight: 600; font-size: 12px; transition: background 0.2s;">Dismiss</button>
         `;
         const dismissBtn = getOverlayElement('job-autofill-error-dismiss-btn');
@@ -984,7 +991,6 @@
       // 1. Get profile and resume data
       const profileData = await chrome.runtime.sendMessage({ type: 'GET_PROFILE' });
       console.log('[JobAutoFill Debug] Profile loaded:', profileData.profile);
-      console.log('[JobAutoFill Debug] RAW PROFILE DATA:', JSON.stringify(profileData, null, 2));
       if (!profileData.hasApiKey) throw new Error('Please set your Gemini API key in the extension popup.');
       if (!profileData.hasResume) throw new Error('Please upload your resume in the extension popup.');
 
@@ -1434,8 +1440,11 @@
     }
   }
 
-  // Listen for messages from popup
+  // Listen for messages from popup — only from the extension itself
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Reject messages from other extensions or external senders
+    if (sender.id !== chrome.runtime.id) return;
+
     if (message.type === 'START_AUTOFILL') {
       startAutoFill();
       sendResponse({ ok: true });
