@@ -174,35 +174,45 @@ if (btnGetJd) {
             const results = await chrome.scripting.executeScript({
               target: { tabId: tab.id },
               func: () => {
-                const clone = document.body.cloneNode(true);
-                const stripTags = ['script', 'style', 'noscript', 'code', 'iframe', 'header', 'footer', 'nav'];
-                for (const tag of stripTags) {
-                  clone.querySelectorAll(tag).forEach(el => el.remove());
+                let textToExtract = "";
+                if (typeof PortalHandlers !== 'undefined' && typeof PortalHandlers.detect === 'function') {
+                  const handler = PortalHandlers.detect();
+                  if (handler && typeof handler.getJobDescription === 'function') {
+                    textToExtract = handler.getJobDescription() || "";
+                  }
                 }
 
-                let textToExtract = clone.innerText || "";
-                const selectors = [
-                  '.show-more-less-html__markup',
-                  '.jobs-box__html-content',
-                  '.jobs-description-content__text',
-                  '.jobs-description__content',
-                  '.jobs-search__job-details--container',
-                  '.jobs-description',
-                  '.job-description', 
-                  '#job-description',
-                  '[data-automation-id="jobPostingDescription"]',
-                  '[data-automation-id="job-posting-description"]'
-                ];
-                for (const sel of selectors) {
-                  const el = document.querySelector(sel);
-                  if (el && el.innerText && el.innerText.trim().length > 200) {
-                    const elClone = el.cloneNode(true);
-                    for (const tag of stripTags) {
-                      elClone.querySelectorAll(tag).forEach(e => e.remove());
-                    }
-                    if (elClone.innerText && elClone.innerText.trim().length > 100) {
-                      textToExtract = elClone.innerText;
-                      break;
+                if (!textToExtract) {
+                  const clone = document.body.cloneNode(true);
+                  const stripTags = ['script', 'style', 'noscript', 'code', 'iframe', 'header', 'footer', 'nav'];
+                  for (const tag of stripTags) {
+                    clone.querySelectorAll(tag).forEach(el => el.remove());
+                  }
+
+                  textToExtract = clone.innerText || "";
+                  const selectors = [
+                    '.show-more-less-html__markup',
+                    '.jobs-box__html-content',
+                    '.jobs-description-content__text',
+                    '.jobs-description__content',
+                    '.jobs-search__job-details--container',
+                    '.jobs-description',
+                    '.job-description', 
+                    '#job-description',
+                    '[data-automation-id="jobPostingDescription"]',
+                    '[data-automation-id="job-posting-description"]'
+                  ];
+                  for (const sel of selectors) {
+                    const el = document.querySelector(sel);
+                    if (el && el.innerText && el.innerText.trim().length > 200) {
+                      const elClone = el.cloneNode(true);
+                      for (const tag of stripTags) {
+                        elClone.querySelectorAll(tag).forEach(e => e.remove());
+                      }
+                      if (elClone.innerText && elClone.innerText.trim().length > 100) {
+                        textToExtract = elClone.innerText;
+                        break;
+                      }
                     }
                   }
                 }
@@ -603,6 +613,18 @@ function load() {
       allClips = data.clips;
       activeClipIdx = data.activeClipIdx;
 
+      // Migrate any existing loaded clips to ensure they have stable UUIDs (Task 3.2)
+      let hasUpdates = false;
+      allClips.forEach(c => {
+        if (c && !c.id) {
+          c.id = crypto.randomUUID();
+          hasUpdates = true;
+        }
+      });
+      if (hasUpdates) {
+        chrome.storage.local.set({ clips: allClips });
+      }
+
       // Resolve active tailored resume from the active clip!
       const activeClip = (activeClipIdx !== null && allClips[activeClipIdx]) ? allClips[activeClipIdx] : null;
       let tailoredText = null;
@@ -918,12 +940,48 @@ container.addEventListener("change", (e) => {
       allClips[idx].trackerStatus = "None";
     }
     save();
+
+    // Sync status change to Clyde Desktop asynchronously (Task 3.1)
+    (async () => {
+      try {
+        const config = await chrome.storage.local.get(['clydeHost', 'clydePort']);
+        const clydeClient = window.ClydeClient || window.__clydeClient;
+        if (clydeClient) {
+          await clydeClient.syncJobStatusToClyde(
+            allClips[idx].companyName || 'Unknown Company',
+            allClips[idx].trackerStatus,
+            { host: config.clydeHost, port: config.clydePort }
+          );
+          console.log('[popup] Synced tracker status to Clyde Desktop App');
+        }
+      } catch (err) {
+        console.warn('[popup] Deferring status sync (desktop offline):', err.message);
+      }
+    })();
   }
   
   if (e.target.matches("[data-status-idx]")) {
     const idx = parseInt(e.target.dataset.statusIdx, 10);
     allClips[idx].trackerStatus = e.target.value;
     save();
+
+    // Sync status change to Clyde Desktop asynchronously (Task 3.1)
+    (async () => {
+      try {
+        const config = await chrome.storage.local.get(['clydeHost', 'clydePort']);
+        const clydeClient = window.ClydeClient || window.__clydeClient;
+        if (clydeClient) {
+          await clydeClient.syncJobStatusToClyde(
+            allClips[idx].companyName || 'Unknown Company',
+            allClips[idx].trackerStatus,
+            { host: config.clydeHost, port: config.clydePort }
+          );
+          console.log('[popup] Synced tracker status to Clyde Desktop App');
+        }
+      } catch (err) {
+        console.warn('[popup] Deferring status sync (desktop offline):', err.message);
+      }
+    })();
   }
 });
 

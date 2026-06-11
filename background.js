@@ -80,6 +80,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     chrome.storage.local.get({ clips: [], geminiApiKey: "" }, async (data) => {
       const clips = data.clips;
       const newClip = { 
+        id: crypto.randomUUID(),
         text: selectedText, 
         url, 
         savedAt: new Date().toISOString(), 
@@ -103,7 +104,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
          try {
            const extracted = await extractJobInfoJson(apiKey, selectedText, resumeText);
            const freshData = await new Promise(r => chrome.storage.local.get({clips: []}, r));
-           const targetIdx = freshData.clips.findIndex(c => c.savedAt === newClip.savedAt);
+           const targetIdx = freshData.clips.findIndex(c => c.id === newClip.id);
            
            if (targetIdx !== -1) {
               let companyFallback = "Company";
@@ -134,7 +135,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
          } catch(e) {
            console.error("Extraction failed", e);
            const freshData = await new Promise(r => chrome.storage.local.get({clips: []}, r));
-           const targetIdx = freshData.clips.findIndex(c => c.savedAt === newClip.savedAt);
+           const targetIdx = freshData.clips.findIndex(c => c.id === newClip.id);
            if (targetIdx !== -1) {
               freshData.clips[targetIdx].jobTitle = "Unknown Title";
               freshData.clips[targetIdx].companyName = "Unknown Company";
@@ -144,7 +145,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
          }
       } else {
          const freshData = await new Promise(r => chrome.storage.local.get({clips: []}, r));
-         const targetIdx = freshData.clips.findIndex(c => c.savedAt === newClip.savedAt);
+         const targetIdx = freshData.clips.findIndex(c => c.id === newClip.id);
          if (targetIdx !== -1) {
             freshData.clips[targetIdx].jobTitle = "Unknown Title";
             freshData.clips[targetIdx].companyName = "Unknown Company";
@@ -379,6 +380,7 @@ async function handleExtractPage(tabId, selectedText, url) {
   const data = await new Promise(r => chrome.storage.local.get({ clips: [], geminiApiKey: "", activeResumeText: null, masterResumeText: null }, r));
   const clips = data.clips;
   const newClip = { 
+    id: crypto.randomUUID(),
     text: selectedText, 
     url, 
     savedAt: new Date().toISOString(), 
@@ -404,7 +406,7 @@ async function handleExtractPage(tabId, selectedText, url) {
        try {
          const extracted = await extractJobInfoJson(apiKey, selectedText, resumeText);
          const freshData = await new Promise(r => chrome.storage.local.get({clips: []}, r));
-         const targetIdx = freshData.clips.findIndex(c => c.savedAt === newClip.savedAt);
+         const targetIdx = freshData.clips.findIndex(c => c.id === newClip.id);
          
          if (targetIdx !== -1) {
             let companyFallback = "Company";
@@ -482,6 +484,26 @@ async function handleExtractPage(tabId, selectedText, url) {
           activeResumeText: flatText,
           activeResumeName: activeName 
         });
+
+        // Asynchronously sync tailored resume to Clyde Desktop (Task 3.1)
+        (async () => {
+          try {
+            const config = await chrome.storage.local.get(['clydeHost', 'clydePort']);
+            await ClydeClient.saveTailoredDocToClyde({
+              company: freshData.clips[clipIdx].companyName || 'Unknown Company',
+              role: freshData.clips[clipIdx].jobTitle || '',
+              filename: activeName,
+              content: flatText,
+              type: 'resume'
+            }, {
+              host: config.clydeHost,
+              port: config.clydePort
+            });
+            console.log('[background] Synced tailored resume to Clyde Desktop');
+          } catch (syncErr) {
+            console.warn('[background] Deferring resume sync (desktop offline):', syncErr.message);
+          }
+        })();
       }
     }));
   }
@@ -518,6 +540,27 @@ async function handleExtractPage(tabId, selectedText, url) {
       if (freshData.clips[clipIdx]) {
         freshData.clips[clipIdx].coverLetterText = plainText;
         await chrome.storage.local.set({ clips: freshData.clips });
+
+        // Asynchronously sync cover letter to Clyde Desktop (Task 3.1)
+        (async () => {
+          try {
+            const config = await chrome.storage.local.get(['clydeHost', 'clydePort']);
+            const clName = `${freshData.clips[clipIdx].jobTitle || 'Role'} - ${freshData.clips[clipIdx].companyName || 'Company'} - Cover Letter`;
+            await ClydeClient.saveTailoredDocToClyde({
+              company: freshData.clips[clipIdx].companyName || 'Unknown Company',
+              role: freshData.clips[clipIdx].jobTitle || '',
+              filename: clName,
+              content: plainText,
+              type: 'cover-letter'
+            }, {
+              host: config.clydeHost,
+              port: config.clydePort
+            });
+            console.log('[background] Synced cover letter to Clyde Desktop');
+          } catch (syncErr) {
+            console.warn('[background] Deferring cover letter sync (desktop offline):', syncErr.message);
+          }
+        })();
       }
     }));
   }
@@ -2150,7 +2193,7 @@ async function queueUnsyncedClip(clip) {
   }
   try {
     const data = await chrome.storage.local.get({ unsyncedClips: [] });
-    const exists = data.unsyncedClips.some(c => c.savedAt === clip.savedAt);
+    const exists = data.unsyncedClips.some(c => (c.id && clip.id && c.id === clip.id) || c.savedAt === clip.savedAt);
     if (!exists) {
       data.unsyncedClips.push(clip);
       await chrome.storage.local.set({ unsyncedClips: data.unsyncedClips });
@@ -2221,5 +2264,45 @@ async function autoSyncClipToClyde(clip) {
 chrome.runtime.onStartup.addListener(() => {
   flushUnsyncedClips();
 });
+
+// Setup background 5-minute sync alarm for high resilience in MV3 (Task 3.1)
+chrome.alarms.create('clyde-flush-alarm', { periodInMinutes: 5 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'clyde-flush-alarm') {
+    flushUnsyncedClips();
+  }
+});
+
+// Auto-migrate existing clips with UUIDs on service worker startup (Task 3.2)
+async function migrateExistingClips() {
+  try {
+    const data = await chrome.storage.local.get({ clips: [], unsyncedClips: [] });
+    let hasUpdates = false;
+    
+    const updatedClips = data.clips.map(c => {
+      if (c && !c.id) {
+        c.id = crypto.randomUUID();
+        hasUpdates = true;
+      }
+      return c;
+    });
+    
+    const updatedUnsynced = data.unsyncedClips.map(c => {
+      if (c && !c.id) {
+        c.id = crypto.randomUUID();
+        hasUpdates = true;
+      }
+      return c;
+    });
+    
+    if (hasUpdates) {
+      await chrome.storage.local.set({ clips: updatedClips, unsyncedClips: updatedUnsynced });
+      console.log('[background] Migrated existing clips with secure UUIDs.');
+    }
+  } catch (err) {
+    console.error('[background] Clip migration failed:', err.message);
+  }
+}
+migrateExistingClips();
 
 
