@@ -613,23 +613,9 @@ WRITING RULES:
 Example of good output:
 "Hi Hiring Team, I'm reaching out because I am genuinely interested in the Data Engineer position at Acme Corp. After reviewing the job description, I see a strong alignment with my background. Specifically, your focus on scaling ETL pipelines caught my eye; in my current role, I rebuilt our core data pipeline using Spark and Airflow, reducing processing time by 30%. I believe this experience directly translates to the goals of your data team. I would appreciate the opportunity to connect and discuss how I can contribute. Best regards, Alex"`;
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemInstruction }] },
-        contents: [{ role: "user", parts: [{ text: `Resume:\n${resumeText}\n\nJob Description:\n${clip.text}` }] }]
-      })
-    }
-  );
-
-  if (!response.ok) throw new Error("Network request failed");
-  const result = await response.json();
-  const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-  
-  return { success: true, message: text.trim() };
+  const prompt = `${systemInstruction}\n\nCandidate Resume:\n${resumeText}\n\nJob Description:\n${clip.text}`;
+  const responseText = await Gemini.call(apiKey, prompt);
+  return { success: true, message: responseText.trim() };
 }
 
 async function handleContextCoverLetter(tab) {

@@ -14,7 +14,10 @@
 
   function isContextValid() {
     try {
-      return !!(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);
+      if (typeof chrome === 'undefined' || !chrome.runtime) return false;
+      const url = chrome.runtime.getURL("");
+      if (url.includes('invalid')) return false;
+      return true;
     } catch (e) {
       return false;
     }
@@ -1634,8 +1637,8 @@
       return;
     }
 
-    // Look for all "Save" buttons on the page (supports list view and single job view)
-    const saveBtns = document.querySelectorAll('.jobs-save-button');
+    // Look for all "Save" or "Apply" buttons on the page (supports list view and single job view)
+    const saveBtns = document.querySelectorAll('.jobs-save-button, .jobs-apply-button, button.jobs-easy-apply-button, button[class*="jobs-save"], button[class*="jobs-apply"]');
     if (!saveBtns || saveBtns.length === 0) return;
 
     let targetSaveBtn = null;
