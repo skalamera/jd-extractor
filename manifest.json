@@ -59,7 +59,13 @@
         "*://*.ashbyhq.com/*",
         "*://*.icims.com/*",
         "*://*.taleo.net/*",
-        "*://*.linkedin.com/jobs/*"
+        "*://*.linkedin.com/jobs/*",
+        "*://*.successfactors.com/*",
+        "*://*.successfactors.eu/*",
+        "*://*.oraclecloud.com/*",
+        "*://*.workable.com/*",
+        "*://*.bamboohr.com/*",
+        "*://*.bamboohr.co.uk/*"
       ],
       "all_frames": true,
       "js": [
@@ -73,6 +79,10 @@
         "content/portal-handlers/smartrecruiters.js",
         "content/portal-handlers/icims.js",
         "content/portal-handlers/taleo.js",
+        "content/portal-handlers/successfactors.js",
+        "content/portal-handlers/oracle-orc.js",
+        "content/portal-handlers/workable.js",
+        "content/portal-handlers/bamboohr.js",
         "content/portal-handlers/generic.js",
         "content/form-detector.js",
         "content/form-filler.js",
