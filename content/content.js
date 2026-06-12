@@ -1005,6 +1005,11 @@
       if (!profileData.hasApiKey) throw new Error('Please set your Gemini API key in the extension popup.');
       if (!profileData.hasResume) throw new Error('Please upload your resume in the extension popup.');
 
+      // Wire settings.autoFillDelay dynamically
+      if (profileData.settings && typeof profileData.settings.autoFillDelay === 'number') {
+        FormFiller.FILL_DELAY = profileData.settings.autoFillDelay;
+      }
+
       const querySelectorAllDeep = (selector, root = document) => {
         const elements = Array.from(root.querySelectorAll(selector));
         const children = root.querySelectorAll('*');
@@ -1542,11 +1547,16 @@
     }
 
     // If new fields appeared on a job application page, show the FAB
-    if (hasNewFields && fab) {
-      const fabBtn = document.getElementById('job-autofill-fab-btn');
-      if (fabBtn) {
-        fabBtn.style.background = '#fbbc04';
-        setTimeout(() => { fabBtn.style.background = '#1a73e8'; }, 2000);
+    if (hasNewFields) {
+      if (fab) {
+        const fabBtn = document.getElementById('job-autofill-fab-btn');
+        if (fabBtn) {
+          fabBtn.style.background = '#fbbc04';
+          setTimeout(() => { fabBtn.style.background = '#1a73e8'; }, 2000);
+        }
+      }
+      if (overlay) {
+        showReadyState();
       }
     }
   });

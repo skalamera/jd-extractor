@@ -2094,7 +2094,8 @@ async function handleGetProfile() {
   const structured = await Storage.getStructuredResume();
   const hasApiKey = !!(await Storage.getApiKey());
   const hasResume = !!resumeText;
-  return { profile, resumeText, structured, hasApiKey, hasResume };
+  const settings = await Storage.getSettings();
+  return { profile, resumeText, structured, hasApiKey, hasResume, settings };
 }
 
 async function handleParsePdf({ base64Data, fileName }) {
