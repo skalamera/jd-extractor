@@ -632,7 +632,7 @@
             <div style="display: block !important; position: relative !important; margin: 0 !important; padding: 0 !important; box-sizing: border-box !important;">
               ${uniqueFailed.map(label => `
                 <div style="margin-bottom: 6px !important; line-height: 1.5 !important; display: block !important; position: relative !important; height: auto !important; min-height: 18px !important; visibility: visible !important; text-align: left !important; font-size: 12px !important; color: #fde047 !important; box-sizing: border-box !important;">
-                  • ${label}
+                  • ${escapeHtml(label)}
                 </div>
               `).join('')}
             </div>
@@ -1805,7 +1805,7 @@
         </button>
       </div>
       <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
-        <textarea id="clyde-cl-textarea" style="width: 100%; height: 280px; padding: 12px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; font-size: 13px; line-height: 1.5; color: #f1f5f9; resize: none; font-family: inherit; outline: none; box-sizing: border-box; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);">${coverLetterText}</textarea>
+        <textarea id="clyde-cl-textarea" style="width: 100%; height: 280px; padding: 12px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; font-size: 13px; line-height: 1.5; color: #f1f5f9; resize: none; font-family: inherit; outline: none; box-sizing: border-box; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);">${escapeHtml(coverLetterText)}</textarea>
         <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
           <button id="clyde-cl-copy-btn" style="padding: 6px 14px; background-color: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; font-size: 12px; font-weight: 600; color: #cbd5e1; cursor: pointer; transition: background 0.2s, color 0.2s;">
             Copy

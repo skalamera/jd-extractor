@@ -233,6 +233,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(err => sendResponse({ error: err.message }));
     return true; // keep channel open for async response
   }
+
+  if (msg.action === "consume-credit") {
+    chrome.storage.local.get('clydeProToken', (data) => {
+      const proToken = data.clydeProToken?.trim();
+      if (!proToken) {
+        sendResponse({ error: 'Clyde Pro License Token not set in settings' });
+        return;
+      }
+      consumeProCredit(proToken)
+        .then(sendResponse)
+        .catch(err => sendResponse({ error: err.message }));
+    });
+    return true;
+  }
   
   if (msg.action === "extract-page") {
     handleExtractPage(msg.tabId, msg.text, msg.url)
@@ -267,6 +281,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   
+  // Extension-page-only actions: these should never come from a content script (tab context)
+  const EXTENSION_PAGE_ONLY_ACTIONS = ['generate', 'consume-credit', 'network', 'extract-page-from-sidebar'];
+  if (EXTENSION_PAGE_ONLY_ACTIONS.includes(msg.action) && sender.tab) {
+    console.warn('Blocked privileged action from content script:', msg.action);
+    return false;
+  }
+
   // Extension-page-only types: these should never come from a content script (tab context)
   const EXTENSION_PAGE_ONLY_TYPES = ['TEST_PRO_TOKEN', 'CLEAR_RESUME', 'DOWNLOAD_COVER_LETTER'];
   if (EXTENSION_PAGE_ONLY_TYPES.includes(msg.type) && sender.tab) {
@@ -2291,5 +2312,28 @@ async function migrateExistingClips() {
   }
 }
 migrateExistingClips();
+
+async function consumeProCredit(proToken) {
+  try {
+    const response = await fetch('https://clydeai.live/api/billing?action=consume-credit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${proToken}`
+      }
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      console.warn('[background] Credit consumption failed:', err?.error || response.statusText);
+      return { success: false, error: err?.error || response.statusText };
+    }
+    const data = await response.json();
+    console.log('[background] Credit consumed successfully. Remaining credits:', data.credits);
+    return { success: true, credits: data.credits };
+  } catch (e) {
+    console.error('[background] Credit consumption error:', e.message);
+    return { success: false, error: e.message };
+  }
+}
 
 
