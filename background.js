@@ -202,9 +202,21 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // Toggle on-page sidebar iframe when clicking the browser extension toolbar action icon
 chrome.action.onClicked.addListener((tab) => {
   if (tab && tab.id) {
-    chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR' }).catch(async () => {
+    // Debug step: Alert the user that the background script has detected the click!
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => { console.log("[Clyde Go] Toolbar action icon clicked! Initiating sidebar loader..."); }
+    }).catch(() => {});
+
+    chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR' }).catch(async (sendErr) => {
       // Content scripts not loaded automatically. Inject them programmatically using activeTab!
       try {
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: (errText) => { console.log("[Clyde Go] No active sidebar listener found on page. Error: " + errText + ". Attempting script injection..."); },
+          args: [sendErr.message]
+        }).catch(() => {});
+
         const manifest = chrome.runtime.getManifest();
         const jsFiles = manifest.content_scripts[0].js;
         
@@ -212,9 +224,18 @@ chrome.action.onClicked.addListener((tab) => {
           target: { tabId: tab.id }, // Target top-level main frame first to prevent ActiveTab third-party iframe CORS failures
           files: jsFiles
         });
-        // The newly injected content script will automatically ping back 'CONTENT_SCRIPT_LOADED' when ready, triggering the toggle cleanly without race conditions.
+        
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => { console.log("[Clyde Go] Script files injected successfully! Handshake pending..."); }
+        }).catch(() => {});
       } catch (err) {
         console.error('[background] ActiveTab content script injection failed:', err.message);
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: (errMsg) => { alert("[Clyde Go Error] Script injection failed: " + errMsg); },
+          args: [err.message]
+        }).catch(() => {});
       }
     });
   }
