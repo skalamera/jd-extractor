@@ -199,6 +199,35 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
+async function injectScripts(tabId) {
+  try {
+    chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => { console.log("[Clyde Go] No active sidebar listener found on page. Initiating script injection..."); }
+    }).catch(() => {});
+
+    const manifest = chrome.runtime.getManifest();
+    const jsFiles = manifest.content_scripts[0].js;
+    
+    await chrome.scripting.executeScript({
+      target: { tabId }, // Target top-level main frame first to prevent ActiveTab third-party iframe CORS failures
+      files: jsFiles
+    });
+    
+    chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => { console.log("[Clyde Go] Script files injected successfully! Handshake pending..."); }
+    }).catch(() => {});
+  } catch (err) {
+    console.error('[background] ActiveTab content script injection failed:', err.message);
+    chrome.scripting.executeScript({
+      target: { tabId },
+      func: (errMsg) => { alert("[Clyde Go Error] Script injection failed: " + errMsg); },
+      args: [err.message]
+    }).catch(() => {});
+  }
+}
+
 // Toggle on-page sidebar iframe when clicking the browser extension toolbar action icon
 chrome.action.onClicked.addListener((tab) => {
   if (tab && tab.id) {
@@ -208,34 +237,11 @@ chrome.action.onClicked.addListener((tab) => {
       func: () => { console.log("[Clyde Go] Toolbar action icon clicked! Initiating sidebar loader..."); }
     }).catch(() => {});
 
-    chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR' }).catch(async (sendErr) => {
-      // Content scripts not loaded automatically. Inject them programmatically using activeTab!
-      try {
-        chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: (errText) => { console.log("[Clyde Go] No active sidebar listener found on page. Error: " + errText + ". Attempting script injection..."); },
-          args: [sendErr.message]
-        }).catch(() => {});
-
-        const manifest = chrome.runtime.getManifest();
-        const jsFiles = manifest.content_scripts[0].js;
-        
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id }, // Target top-level main frame first to prevent ActiveTab third-party iframe CORS failures
-          files: jsFiles
-        });
-        
-        chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: () => { console.log("[Clyde Go] Script files injected successfully! Handshake pending..."); }
-        }).catch(() => {});
-      } catch (err) {
-        console.error('[background] ActiveTab content script injection failed:', err.message);
-        chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: (errMsg) => { alert("[Clyde Go Error] Script injection failed: " + errMsg); },
-          args: [err.message]
-        }).catch(() => {});
+    // Standard Chromium callback-based sendMessage with lastError checks for absolute 100% compatibility across all engines (prevents silent Promise drop bugs)
+    chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR' }, (response) => {
+      const err = chrome.runtime.lastError;
+      if (err) {
+        injectScripts(tab.id);
       }
     });
   }
