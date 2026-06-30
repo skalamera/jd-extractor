@@ -1187,6 +1187,10 @@
 
         for (const field of directFields) {
           const resolved = resolveFieldElement(field);
+          if (!resolved || !resolved.element) {
+            console.warn(`[JobAutoFill] Direct field element not found in DOM for: ${field.label}`);
+            continue;
+          }
 
           if (skipRequested) {
             skipRequested = false;
@@ -1220,7 +1224,7 @@
               }
               fallbackAiFields.push(resolved);
             }
-            await FormFiller.delay(FormFiller.FILL_DELAY);
+            await FormFiller.delay(FormFiller.getFillDelay());
           } else {
             if (fallbackPurposes.has(resolved.purpose)) {
               fallbackAiFields.push(resolved);
@@ -1238,6 +1242,21 @@
         const aiQueue = [...dedupedAi, ...fallbackAiFields].filter((field, index, list) =>
           list.findIndex(candidate => candidate.id === field.id) === index
         );
+
+        // Failsafe timeout helper so standard API calls never hang the extension
+        const withTimeout = (promise, ms, defaultValue) => {
+          let timeoutId;
+          const timeoutPromise = new Promise(resolve => {
+            timeoutId = setTimeout(() => {
+              console.warn(`[JobAutoFill] Message timed out after ${ms}ms. Falling back.`);
+              resolve(defaultValue);
+            }, ms);
+          });
+          return Promise.race([promise, timeoutPromise]).then(res => {
+            clearTimeout(timeoutId);
+            return res;
+          });
+        };
 
         // Kick off custom Q&A and Cover Letter generation in parallel to prevent Manifest V3 message timeouts
         let aiAnswersPromise = Promise.resolve({});
@@ -1276,8 +1295,11 @@
           });
         }
 
-        // Wait for both parallel requests to complete
-        const [aiAnswers, coverLetter] = await Promise.all([aiAnswersPromise, coverLetterPromise]);
+        // Wait for both parallel requests with a 35-second failsafe timeout on each
+        const [aiAnswers, coverLetter] = await Promise.all([
+          withTimeout(aiAnswersPromise, 35000, {}),
+          withTimeout(coverLetterPromise, 35000, null)
+        ]);
 
         // 8. Fill custom questions / AI answers
         if (aiQueue.length > 0) {
@@ -1285,6 +1307,10 @@
 
           for (const field of aiQueue) {
             const resolved = resolveFieldElement(field);
+            if (!resolved || !resolved.element) {
+              console.warn(`[JobAutoFill] AI field element not found in DOM for: ${field.label}`);
+              continue;
+            }
 
             if (skipRequested) {
               skipRequested = false;
@@ -1314,7 +1340,7 @@
                 highlightTarget.style.outlineOffset = '2px';
                 allFailedFieldLabels.push(resolved.label);
               }
-              await FormFiller.delay(FormFiller.FILL_DELAY);
+              await FormFiller.delay(FormFiller.getFillDelay());
             } else {
               highlightTarget.style.outline = '2px solid #ea4335';
               highlightTarget.style.outlineOffset = '2px';
@@ -1339,6 +1365,10 @@
           const applicant = profileData.profile.fullName || 'Applicant';
           for (const field of coverLetterFields) {
             const resolved = resolveFieldElement(field);
+            if (!resolved || !resolved.element) {
+              console.warn(`[JobAutoFill] Cover letter field element not found in DOM for: ${field.label}`);
+              continue;
+            }
             let success;
             if (resolved.fieldType === 'file') {
               const fileName = `${applicant.replace(/\s+/g, '_')}_Cover_Letter.pdf`;
@@ -1459,7 +1489,7 @@
   // Listen for messages from popup — only from the extension itself
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Reject messages from other extensions or external senders
-    if (sender.id !== chrome.runtime.id) return;
+    if (sender.id && sender.id !== chrome.runtime.id) return;
 
     if (message.type === 'START_AUTOFILL') {
       startAutoFill();
@@ -1522,7 +1552,13 @@
         showError(message.message);
       }
     } else if (message.type === 'SHOW_COVER_LETTER_PREVIEW') {
-      showCoverLetterPreview(message.coverLetter);
+      if (window === window.top) {
+        showCoverLetterPreview(message.coverLetter);
+      }
+    } else if (message.type === 'SHOW_LINKEDIN_MESSAGE_PREVIEW') {
+      if (window === window.top) {
+        showLinkedInMessagePreview(message.messageText);
+      }
     }
     return true;
   });
@@ -1769,6 +1805,32 @@
   }
 
   function showCoverLetterPreview(coverLetterText) {
+    let cleanText = String(coverLetterText || '').trim();
+    
+    // Parse JSON fallback in case Gemini returned a JSON object instead of raw plain text
+    try {
+      if (cleanText.startsWith('{') && cleanText.endsWith('}')) {
+        const parsed = JSON.parse(cleanText);
+        if (parsed.cover_letter) {
+          cleanText = parsed.cover_letter;
+        } else if (parsed.coverLetter) {
+          cleanText = parsed.coverLetter;
+        } else if (Array.isArray(parsed.paragraphs)) {
+          // Re-assemble the paragraphs with nice spacing
+          const header = [];
+          if (parsed.name) header.push(parsed.name);
+          if (parsed.email || parsed.linkedin_url) {
+            const contact = [parsed.email, parsed.linkedin_url, parsed.location].filter(Boolean);
+            header.push(contact.join(' | '));
+          }
+          const bodyText = (parsed.paragraphs || []).join('\n\n');
+          cleanText = header.length > 0 ? `${header.join('\n')}\n\nDear Hiring Manager,\n\n${bodyText}` : bodyText;
+        }
+      }
+    } catch (e) {
+      console.warn('[JobAutoFill] Could not parse cover letter as JSON:', e);
+    }
+
     const existing = document.getElementById('clyde-cover-letter-preview-panel');
     if (existing) existing.remove();
 
@@ -1785,7 +1847,7 @@
     panel.style.border = '1px solid rgba(255, 255, 255, 0.1)';
     panel.style.borderRadius = '12px';
     panel.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.4)';
-    panel.style.zIndex = '999999';
+    panel.style.setProperty('z-index', '2147483647', 'important');
     panel.style.display = 'flex';
     panel.style.flexDirection = 'column';
     panel.style.fontFamily = 'Inter, system-ui, -apple-system, sans-serif';
@@ -1805,7 +1867,7 @@
         </button>
       </div>
       <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
-        <textarea id="clyde-cl-textarea" style="width: 100%; height: 280px; padding: 12px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; font-size: 13px; line-height: 1.5; color: #f1f5f9; resize: none; font-family: inherit; outline: none; box-sizing: border-box; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);">${escapeHtml(coverLetterText)}</textarea>
+        <textarea id="clyde-cl-textarea" style="width: 100%; height: 280px; padding: 12px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; font-size: 13px; line-height: 1.5; color: #f1f5f9; resize: none; font-family: inherit; outline: none; box-sizing: border-box; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);">${escapeHtml(cleanText)}</textarea>
         <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
           <button id="clyde-cl-copy-btn" style="padding: 6px 14px; background-color: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; font-size: 12px; font-weight: 600; color: #cbd5e1; cursor: pointer; transition: background 0.2s, color 0.2s;">
             Copy
@@ -1826,6 +1888,90 @@
 
     const copyBtn = document.getElementById('clyde-cl-copy-btn');
     const textarea = document.getElementById('clyde-cl-textarea');
+    if (copyBtn && textarea) {
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(textarea.value);
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => copyBtn.textContent = 'Copy', 2000);
+      });
+    }
+  }
+
+  function showLinkedInMessagePreview(messageText) {
+    let cleanText = String(messageText || '').trim();
+
+    // Parse JSON fallback in case Gemini returned a JSON object instead of raw plain text
+    try {
+      if (cleanText.startsWith('{') && cleanText.endsWith('}')) {
+        const parsed = JSON.parse(cleanText);
+        if (parsed.linkedin_message) {
+          cleanText = parsed.linkedin_message;
+        } else if (parsed.message) {
+          cleanText = parsed.message;
+        } else if (parsed.text) {
+          cleanText = parsed.text;
+        }
+      }
+    } catch (e) {
+      console.warn('[JobAutoFill] Could not parse LinkedIn message as JSON:', e);
+    }
+
+    const existing = document.getElementById('clyde-linkedin-message-preview-panel');
+    if (existing) existing.remove();
+
+    const panel = document.createElement('div');
+    panel.id = 'clyde-linkedin-message-preview-panel';
+    panel.style.position = 'fixed';
+    panel.style.bottom = '20px';
+    panel.style.right = '20px';
+    panel.style.width = '380px';
+    panel.style.maxHeight = '500px';
+    panel.style.backgroundColor = 'rgba(15, 23, 42, 0.75)';
+    panel.style.backdropFilter = 'blur(12px)';
+    panel.style.webkitBackdropFilter = 'blur(12px)';
+    panel.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+    panel.style.borderRadius = '12px';
+    panel.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.4)';
+    panel.style.setProperty('z-index', '2147483647', 'important');
+    panel.style.display = 'flex';
+    panel.style.flexDirection = 'column';
+    panel.style.fontFamily = 'Inter, system-ui, -apple-system, sans-serif';
+    panel.style.overflow = 'hidden';
+
+    panel.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background-color: rgba(30, 41, 59, 0.5); color: #ffffff; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+        <span style="font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; color: #38bdf8;">
+          <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="color: #0a66c2;">
+            <path d="M0 1.146C0 .513.526 0 1.175 0h13.65C15.474 0 16 .513 16 1.146v13.708c0 .633-.526 1.146-1.175 1.146H1.175C.526 16 0 15.487 0 14.854V1.146zm4.943 12.248V6.169H2.542v7.225h2.401zm-1.2-8.212c.837 0 1.358-.554 1.358-1.248-.015-.709-.52-1.248-1.342-1.248-.822 0-1.359.54-1.359 1.248 0 .694.521 1.248 1.327 1.248h.016zm4.908 8.212V9.359c0-.216.016-.432.08-.586.173-.431.568-.878 1.232-.878.869 0 1.216.662 1.216 1.634v3.865h2.401V9.25c0-2.22-1.184-3.252-2.764-3.252-1.274 0-1.845.7-2.165 1.193v.025h-.016a5.54 5.54 0 0 1 .016-.025V6.169h-2.4c.03.678 0 7.225 0 7.225h2.4z"/>
+          </svg>
+          LinkedIn Outreach Message
+        </span>
+        <button id="clyde-li-close-btn" style="background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; transition: color 0.2s; line-height: 1;">
+          ✕
+        </button>
+      </div>
+      <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+        <textarea id="clyde-li-textarea" style="width: 100%; height: 280px; padding: 12px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; font-size: 13px; line-height: 1.5; color: #f1f5f9; resize: none; font-family: inherit; outline: none; box-sizing: border-box; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);">${escapeHtml(cleanText)}</textarea>
+        <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
+          <button id="clyde-li-copy-btn" style="padding: 6px 14px; background-color: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; font-size: 12px; font-weight: 600; color: #cbd5e1; cursor: pointer; transition: background 0.2s, color 0.2s;">
+            Copy
+          </button>
+          <span style="font-size: 12px; font-weight: 600; color: #4ade80; display: flex; align-items: center; gap: 4px;">
+            ✓ Drafted for Outreach
+          </span>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    const closeBtn = document.getElementById('clyde-li-close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => panel.remove());
+    }
+
+    const copyBtn = document.getElementById('clyde-li-copy-btn');
+    const textarea = document.getElementById('clyde-li-textarea');
     if (copyBtn && textarea) {
       copyBtn.addEventListener('click', () => {
         navigator.clipboard.writeText(textarea.value);

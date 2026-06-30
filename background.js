@@ -1,5 +1,14 @@
 importScripts('lib/storage.js', 'lib/gemini.js', 'lib/clyde-client.js');
 
+function cleanUrl(url) {
+  if (!url) return "";
+  const hrefMatch = url.match(/href=["'](.*?)["']/i);
+  if (hrefMatch && hrefMatch[1]) {
+    url = hrefMatch[1];
+  }
+  return url.replace(/<[^>]*>/g, "").trim();
+}
+
 // ── Context menus ──────────────────────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -77,7 +86,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
   if (info.menuItemId === "save-selection") {
     if (!selectedText) return;
-    chrome.storage.local.get({ clips: [], geminiApiKey: "" }, async (data) => {
+    chrome.storage.local.get({ clips: [], geminiApiKey: "", clydeProToken: "" }, async (data) => {
       const clips = data.clips;
       const newClip = { 
         id: crypto.randomUUID(),
@@ -98,9 +107,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
       // Extract details in background
       const apiKey = data.geminiApiKey?.trim();
+      const proToken = data.clydeProToken?.trim();
       const resumeText = data.activeResumeText || data.masterResumeText || "";
       
-      if (apiKey) {
+      if (apiKey || proToken) {
          try {
            const extracted = await extractJobInfoJson(apiKey, selectedText, resumeText);
            const freshData = await new Promise(r => chrome.storage.local.get({clips: []}, r));
@@ -199,7 +209,7 @@ chrome.action.onClicked.addListener((tab) => {
         const jsFiles = manifest.content_scripts[0].js;
         
         await chrome.scripting.executeScript({
-          target: { tabId: tab.id, allFrames: true },
+          target: { tabId: tab.id }, // Target top-level main frame first to prevent ActiveTab third-party iframe CORS failures
           files: jsFiles
         });
         
@@ -283,14 +293,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   
   // Extension-page-only actions: these should never come from a content script (tab context)
   const EXTENSION_PAGE_ONLY_ACTIONS = ['generate', 'consume-credit', 'network', 'extract-page-from-sidebar'];
-  if (EXTENSION_PAGE_ONLY_ACTIONS.includes(msg.action) && sender.tab) {
+  if (EXTENSION_PAGE_ONLY_ACTIONS.includes(msg.action) && sender.tab && !sender.url?.startsWith(chrome.runtime.getURL(''))) {
     console.warn('Blocked privileged action from content script:', msg.action);
     return false;
   }
 
   // Extension-page-only types: these should never come from a content script (tab context)
   const EXTENSION_PAGE_ONLY_TYPES = ['TEST_PRO_TOKEN', 'CLEAR_RESUME', 'DOWNLOAD_COVER_LETTER'];
-  if (EXTENSION_PAGE_ONLY_TYPES.includes(msg.type) && sender.tab) {
+  if (EXTENSION_PAGE_ONLY_TYPES.includes(msg.type) && sender.tab && !sender.url?.startsWith(chrome.runtime.getURL(''))) {
     console.warn('Blocked privileged message from content script:', msg.type);
     return false;
   }
@@ -398,7 +408,7 @@ async function handleExtractFromSidebar() {
 
 async function handleExtractPage(tabId, selectedText, url) {
   if (!selectedText) throw new Error("No text found on page.");
-  const data = await new Promise(r => chrome.storage.local.get({ clips: [], geminiApiKey: "", activeResumeText: null, masterResumeText: null }, r));
+  const data = await new Promise(r => chrome.storage.local.get({ clips: [], geminiApiKey: "", clydeProToken: "", activeResumeText: null, masterResumeText: null }, r));
   const clips = data.clips;
   const newClip = { 
     id: crypto.randomUUID(),
@@ -420,9 +430,10 @@ async function handleExtractPage(tabId, selectedText, url) {
   // Run the heavy Gemini extraction and Clyde Desktop auto-sync asynchronously
   // so that the popup gets an immediate success response and doesn't freeze/hang.
   const apiKey = data.geminiApiKey?.trim();
+  const proToken = data.clydeProToken?.trim();
   const resumeText = data.activeResumeText || data.masterResumeText || "";
   
-  if (apiKey) {
+  if (apiKey || proToken) {
     (async () => {
        try {
          const extracted = await extractJobInfoJson(apiKey, selectedText, resumeText);
@@ -500,6 +511,7 @@ async function handleExtractPage(tabId, selectedText, url) {
       if (freshData.clips[clipIdx]) {
         freshData.clips[clipIdx].tailoredResumeText = flatText;
         freshData.clips[clipIdx].tailoredResumeName = activeName;
+        freshData.clips[clipIdx].tailoredResumeKey = cvKey;
         await chrome.storage.local.set({ 
           clips: freshData.clips,
           activeResumeText: flatText,
@@ -531,7 +543,15 @@ async function handleExtractPage(tabId, selectedText, url) {
 
   if (type === "cover" || type === "both") {
     promises.push(generateCoverJson(apiKey, clip.text, resumeText).then(async d => {
-      docs.push({ html: buildCoverHtml(d, resumeText, profile.portfolioUrl), order: 1, key: coverKey });
+      if (d && d.paragraphs) {
+        const portfolioUrl = cleanUrl(profile.portfolioUrl);
+        if (portfolioUrl) {
+          d.paragraphs.push(`Thank you for considering my application. My portfolio can be found at ${portfolioUrl.replace(/^https?:\/\/(www\.)?/, '')}.`);
+        } else {
+          d.paragraphs.push("Thank you for considering my application.");
+        }
+      }
+      docs.push({ html: buildCoverHtml(d, resumeText, cleanUrl(profile.portfolioUrl)), order: 1, key: coverKey });
       
       const contactInfo = [];
       const city = profile.address?.city;
@@ -560,6 +580,7 @@ async function handleExtractPage(tabId, selectedText, url) {
       const freshData = await new Promise(r => chrome.storage.local.get({ clips: [] }, r));
       if (freshData.clips[clipIdx]) {
         freshData.clips[clipIdx].coverLetterText = plainText;
+        freshData.clips[clipIdx].coverLetterKey = coverKey;
         await chrome.storage.local.set({ clips: freshData.clips });
 
         // Asynchronously sync cover letter to Clyde Desktop (Task 3.1)
@@ -587,8 +608,16 @@ async function handleExtractPage(tabId, selectedText, url) {
   }
 
   if (type === "prep") {
-    promises.push(generatePrepJson(apiKey, clip.text, resumeText).then(d => {
-      docs.push({ html: buildPrepHtml(d, clip.jobTitle, clip.companyName), order: 2, key: `_tc_${Date.now()}_prep` });
+    const prepKey = `_tc_${Date.now()}_prep`;
+    promises.push(generatePrepJson(apiKey, clip.text, resumeText).then(async d => {
+      docs.push({ html: buildPrepHtml(d, clip.jobTitle, clip.companyName), order: 2, key: prepKey });
+      
+      const freshData = await new Promise(r => chrome.storage.local.get({ clips: [] }, r));
+      if (freshData.clips[clipIdx]) {
+        freshData.clips[clipIdx].interviewPrepText = JSON.stringify(d);
+        freshData.clips[clipIdx].interviewPrepKey = prepKey;
+        await chrome.storage.local.set({ clips: freshData.clips });
+      }
     }));
   }
 
@@ -597,11 +626,9 @@ async function handleExtractPage(tabId, selectedText, url) {
 
   for (let i = 0; i < docs.length; i++) {
     await new Promise(r => chrome.storage.local.set({ [docs[i].key]: docs[i].html }, r));
-    await chrome.tabs.create({ url: chrome.runtime.getURL(`print.html?key=${encodeURIComponent(docs[i].key)}`) });
-    if (i < docs.length - 1) await new Promise(r => setTimeout(r, 400));
   }
 
-  return { success: true, count: docs.length };
+  return { success: true, count: docs.length, keys: docs.map(d => d.key) };
 }
 
   async function handleNetworkDraft(clipIdx) {
@@ -1081,7 +1108,7 @@ ${styleGuide}`;
 
   let fetchUrl, fetchHeaders, fetchBody;
 
-  if (proToken) {
+  if (proToken && !apiKey) {
     fetchUrl = 'https://clydeai.live/api/proxy';
     fetchHeaders = {
       "Content-Type": "application/json",
@@ -1195,7 +1222,7 @@ async function callGeminiJson(apiKey, systemInstruction, userPrompt, retries = 1
 
   let fetchUrl, fetchHeaders, fetchBody;
 
-  if (proToken) {
+  if (proToken && !apiKey) {
     fetchUrl = 'https://clydeai.live/api/proxy';
     fetchHeaders = {
       "Content-Type": "application/json",
@@ -1311,19 +1338,51 @@ async function generateCvJson(apiKey, jobDescription, resumeText) {
   try {
     const structured = await Storage.getStructuredResume();
     if (structured) {
-      const experience = (structured.experience || []).map(job => {
-        let bullets = [];
-        if (job.description) {
-          bullets = job.description.split('\n')
-            .map(b => b.trim().replace(/^[-•*+]\s*/, ''))
-            .filter(Boolean);
+      const parseBullets = (desc) => {
+        if (!desc) return [];
+        let cleanedDesc = desc.trim();
+
+        // Smart fallback: If it has no newlines and no inline bullet characters, but is a long
+        // block of text (e.g. 120+ chars), split it into separate bullets on sentences (period + space + capital letter)
+        const hasMultipleLines = cleanedDesc.includes('\n');
+        const hasInlineBullets = /[•\-*+]\s+/.test(cleanedDesc.substring(2));
+
+        if (!hasMultipleLines && !hasInlineBullets && cleanedDesc.length > 120) {
+          const sentences = cleanedDesc.split(/\.\s+(?=[A-Z])/);
+          const bullets = [];
+          sentences.forEach(s => {
+            let clean = s.trim().replace(/^[\s\u200B\u00A0]*[-•●▪■◆○*+–—·∙]\s*/, '');
+            if (clean) {
+              if (!clean.endsWith('.')) {
+                clean += '.';
+              }
+              bullets.push(clean);
+            }
+          });
+          if (bullets.length > 0) {
+            return bullets;
+          }
         }
+
+        const rawBullets = cleanedDesc.split('\n');
+        const bullets = [];
+        rawBullets.forEach(line => {
+          const inlineBullets = line.split(/(?=\s*[•\-*+]\s+)/);
+          inlineBullets.forEach(ib => {
+            const clean = ib.trim().replace(/^[\s\u200B\u00A0]*[-•●▪■◆○*+–—·∙]\s*/, '');
+            if (clean) bullets.push(clean);
+          });
+        });
+        return bullets;
+      };
+
+      const experience = (structured.experience || []).map(job => {
         return {
           company: job.company || "",
           period: `${job.startDate || ""} - ${job.endDate || "Present"}`,
           role: job.title || "",
           location: job.location || "",
-          bullets
+          bullets: parseBullets(job.description)
         };
       });
 
@@ -1342,31 +1401,19 @@ async function generateCvJson(apiKey, jobDescription, resumeText) {
       ];
 
       const projects = (structured.projects || []).map(p => {
-        let bullets = [];
-        if (p.description) {
-          bullets = p.description.split('\n')
-            .map(b => b.trim().replace(/^[-•*+]\s*/, ''))
-            .filter(Boolean);
-        }
         return {
           title: p.title || "",
           role: p.role || "",
-          bullets
+          bullets: parseBullets(p.description)
         };
       });
 
       const certifications = (structured.certifications || []).map(c => {
-        let bullets = [];
-        if (c.description) {
-          bullets = c.description.split('\n')
-            .map(b => b.trim().replace(/^[-•*+]\s*/, ''))
-            .filter(Boolean);
-        }
         return {
           title: c.title || "",
           org: c.org || "",
           year: c.year || "",
-          bullets
+          bullets: parseBullets(c.description)
         };
       });
 
@@ -1416,15 +1463,7 @@ async function generateCvJson(apiKey, jobDescription, resumeText) {
 
 async function generateCoverJson(apiKey, jobDescription, resumeText) {
   const profile = await Storage.getProfile();
-  const portfolioUrl = profile.portfolioUrl;
   const firstName = profile.firstName || "Stephen";
-  
-  const portfolioText = portfolioUrl 
-    ? `My portfolio can be found at <a href="${portfolioUrl}">${portfolioUrl.replace(/^https?:\/\/(www\.)?/, '')}</a>.`
-    : '';
-  const finalParaRule = portfolioText
-    ? `- After the final paragraph, add ONE MORE separate paragraph containing exactly and only: "Thank you for considering my application. My portfolio can be found at <a href=\"${portfolioUrl}\">${portfolioUrl.replace(/^https?:\/\/(www\.)?/, '')}</a>."`
-    : `- After the final paragraph, add ONE MORE separate paragraph containing exactly and only: "Thank you for considering my application."`;
 
   const systemInstruction = `You generate tailored cover letters. Given a resume and job description, return a JSON object with cover letter content.
 
@@ -1441,8 +1480,7 @@ WRITING RULES:
 - BANNED PHRASES: "I am eager", "serves as", "boasts a", "features a", "In today's...", "Furthermore", "Additionally", "Moreover". Use plain verbs (is, has, uses).
 - NO NEGATIVE PARALLELISM: Do not use "Not X, but Y", "It isn't X. It's Y". Just state the positive claim directly.
 - NO ANALOGIES OR METAPHORS: Write literally. Do not use words like "bridge", "lens", "engine", "journey".
-- Final paragraph: brief, forward-looking, express interest in a conversation.
-${finalParaRule}
+- Final paragraph: brief, forward-looking, express interest in a conversation. (Do NOT include thank-you or portfolio sign-off statements here, as they will be automatically appended by the system).
 
 Return ONLY valid JSON matching this structure:
 {
@@ -1557,7 +1595,7 @@ function buildCvHtml(d, portfolioUrl) {
         <span class="job-location">${esc(job.location || "")}</span>
       </div>
       <ul>
-        ${(job.bullets || []).map(b => `<li>${esc(b)}</li>`).join("\n")}
+        ${(job.bullets || []).map(b => `<li>${esc(b.trim().replace(/^[\s\u200B\u00A0]*[-•●▪■◆○*+–—·∙]\s*/, ''))}</li>`).join("\n")}
       </ul>
     </div>
   `).join("\n");
@@ -1567,7 +1605,7 @@ function buildCvHtml(d, portfolioUrl) {
       <div class="project-title">${esc(p.title)}</div>
       <div class="project-role">${esc(p.role || "")}</div>
       <ul>
-        ${(p.bullets || []).map(b => `<li>${esc(b)}</li>`).join("\n")}
+        ${(p.bullets || []).map(b => `<li>${esc(b.trim().replace(/^[\s\u200B\u00A0]*[-•●▪■◆○*+–—·∙]\s*/, ''))}</li>`).join("\n")}
       </ul>
     </div>
   `).join("\n");
@@ -1586,7 +1624,7 @@ function buildCvHtml(d, portfolioUrl) {
     <div style="font-weight: bold; font-size: 11px; margin-top: 2px;">${esc(c.title)} <span style="font-weight: normal;">| ${esc(c.org)} | ${esc(c.year)}</span></div>
     ${c.bullets && c.bullets.length ? `
     <ul>
-      ${c.bullets.map(b => `<li>${esc(b)}</li>`).join("\n")}
+      ${c.bullets.map(b => `<li>${esc(b.trim().replace(/^[\s\u200B\u00A0]*[-•●▪■◆○*+–—·∙]\s*/, ''))}</li>`).join("\n")}
     </ul>` : ''}
   `).join("\n");
 
@@ -2015,9 +2053,9 @@ async function handleAnalyzeResume({ resumeText }) {
       email: structured.email || profile.email || '',
       phone: structured.phone || profile.phone || '',
       address: { ...(profile.address || {}), ...(structured.address || {}) },
-      linkedinUrl: structured.linkedinUrl || profile.linkedinUrl || '',
-      githubUrl: structured.githubUrl || profile.githubUrl || '',
-      portfolioUrl: structured.portfolioUrl || profile.portfolioUrl || '',
+      linkedinUrl: cleanUrl(structured.linkedinUrl || profile.linkedinUrl || ''),
+      githubUrl: cleanUrl(structured.githubUrl || profile.githubUrl || ''),
+      portfolioUrl: cleanUrl(structured.portfolioUrl || profile.portfolioUrl || ''),
       yearsOfExperience: structured.yearsOfExperience || profile.yearsOfExperience || 0
     };
     await Storage.saveProfile(merged);
@@ -2042,13 +2080,27 @@ async function handleFillFields({ fields, jobDescription: originalJobDescription
   
   // Use pinned JD from active clip if it exists to override extracted jobDescription
   let jobDescription = originalJobDescription;
+  let activeClip = null;
   try {
     const data = await chrome.storage.local.get({ clips: [], activeClipIdx: null });
     if (data.activeClipIdx !== null && data.clips[data.activeClipIdx]) {
-      jobDescription = data.clips[data.activeClipIdx].text;
+      activeClip = data.clips[data.activeClipIdx];
+      jobDescription = activeClip.text;
     }
   } catch (e) {
     console.error("Failed to load active clip for autofill", e);
+  }
+
+  // Load useStarStoriesForQA setting and append stories to resume text context if enabled
+  let sourceText = resumeText;
+  try {
+    const settings = await chrome.storage.local.get('useStarStoriesForQA');
+    if (settings.useStarStoriesForQA && activeClip && activeClip.interviewPrepText) {
+      sourceText = `${resumeText}\n\n=========================================\nADDITIONAL SOURCE DATA: STAR BEHAVIORAL INTERVIEW PREP STORIES:\n=========================================\n${activeClip.interviewPrepText}`;
+      console.log('[background] Appended STAR interview prep stories to prompt source text.');
+    }
+  } catch (e) {
+    console.error("Failed to load useStarStoriesForQA setting", e);
   }
 
   // Check custom Q&A first for matching questions
@@ -2072,7 +2124,7 @@ async function handleFillFields({ fields, jobDescription: originalJobDescription
   delete profileForAi.workAuthorizationStatus;
 
   if (aiFields.length > 0) {
-    let aiAnswers = await Gemini.answerFields(apiKey, aiFields, resumeText, profileForAi, jobDescription, customInstructions);
+    let aiAnswers = await Gemini.answerFields(apiKey, aiFields, sourceText, profileForAi, jobDescription, customInstructions);
     // Gemini may return an array of objects instead of a flat object — flatten it
     if (Array.isArray(aiAnswers)) {
       const flat = {};
