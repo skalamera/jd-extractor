@@ -237,13 +237,41 @@ chrome.action.onClicked.addListener((tab) => {
       func: () => { console.log("[Clyde Go] Toolbar action icon clicked! Initiating sidebar loader..."); }
     }).catch(() => {});
 
-    // Standard Chromium callback-based sendMessage with lastError checks for absolute 100% compatibility across all engines (prevents silent Promise drop bugs)
-    chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR' }, (response) => {
-      const err = chrome.runtime.lastError;
-      if (err) {
-        injectScripts(tab.id);
-      }
-    });
+    const url = tab.url || "";
+    const isMatchedAuto = url && (
+      url.includes("myworkdayjobs.com") ||
+      url.includes("smartrecruiters.com") ||
+      url.includes("greenhouse.io") ||
+      url.includes("lever.co") ||
+      url.includes("ashbyhq.com") ||
+      url.includes("icims.com") ||
+      url.includes("taleo.net") ||
+      url.includes("linkedin.com/jobs") ||
+      url.includes("successfactors.com") ||
+      url.includes("successfactors.eu") ||
+      url.includes("oraclecloud.com") ||
+      url.includes("workable.com") ||
+      url.includes("bamboohr.com") ||
+      url.includes("bamboohr.co.uk")
+    );
+
+    if (isMatchedAuto) {
+      chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR' }, (response) => {
+        const err = chrome.runtime.lastError;
+        if (err) {
+          injectScripts(tab.id);
+        }
+      });
+    } else {
+      // Unconditional direct injection on custom company domains!
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: (domainUrl) => { console.log("[Clyde Go] Custom company domain detected: \"" + domainUrl + "\". Triggering unconditional ActiveTab script injection..."); },
+        args: [url]
+      }).catch(() => {});
+
+      injectScripts(tab.id);
+    }
   }
 });
 
