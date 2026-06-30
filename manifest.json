@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Clyde Go",
-  "version": "1.2.1",
-  "description": "Highlight text, get AI answers, generate CVs, and auto-fill job applications.",
+  "version": "1.2.2",
+  "description": "Automate your job search with Tailored Cover Letters, Resumes, AI generated answers, and 1-click Autofill.",
   "permissions": [
     "contextMenus",
     "storage",
@@ -13,7 +13,8 @@
     "alarms"
   ],
   "host_permissions": [
-    "https://generativelanguage.googleapis.com/*"
+    "https://generativelanguage.googleapis.com/*",
+    "https://clydeai.live/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -44,8 +45,7 @@
         "icons/popup_ui_header.svg",
         "icons/clyde_apply.svg"
       ],
-      "matches": ["<all_urls>"],
-      "use_dynamic_url": true
+      "matches": ["<all_urls>"]
     }
   ],
   "content_scripts": [
