@@ -212,11 +212,7 @@ chrome.action.onClicked.addListener((tab) => {
           target: { tabId: tab.id }, // Target top-level main frame first to prevent ActiveTab third-party iframe CORS failures
           files: jsFiles
         });
-        
-        // Wait a split-second for initialization, then toggle
-        setTimeout(() => {
-          chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR' }).catch(() => {});
-        }, 150);
+        // The newly injected content script will automatically ping back 'CONTENT_SCRIPT_LOADED' when ready, triggering the toggle cleanly without race conditions.
       } catch (err) {
         console.error('[background] ActiveTab content script injection failed:', err.message);
       }
@@ -229,6 +225,13 @@ chrome.action.onClicked.addListener((tab) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Only accept messages from the extension itself
   if (sender.id !== chrome.runtime.id) return;
+
+  if (msg.type === 'CONTENT_SCRIPT_LOADED') {
+    if (sender.tab && sender.tab.id) {
+      chrome.tabs.sendMessage(sender.tab.id, { type: 'TOGGLE_SIDEBAR' }).catch(() => {});
+    }
+    return;
+  }
 
   if (msg.type === 'AUTOFILL_PROGRESS' || msg.type === 'AUTOFILL_DONE' || msg.type === 'AUTOFILL_ERROR') {
     if (sender.tab) {

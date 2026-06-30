@@ -1671,6 +1671,13 @@
         }
       }
     }, 1000);
+
+    // Notify the background service worker that we are fully loaded, compiled, and ready
+    try {
+      chrome.runtime.sendMessage({ type: 'CONTENT_SCRIPT_LOADED' });
+    } catch (e) {
+      // Ignore extension context invalidated errors
+    }
   }
 
   function injectLinkedInExtractButton() {
